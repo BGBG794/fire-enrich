@@ -1,5 +1,5 @@
 import { AgentOrchestrator } from '../agent-architecture';
-import type { CSVRow, EnrichmentField, RowEnrichmentResult, EnrichmentResult } from '../types';
+import type { CSVRow, EnrichmentField, RowEnrichmentResult, EnrichmentResult, EnrichmentMode } from '../types';
 import { shouldSkipEmail, loadSkipList, getSkipReason } from '../utils/skip-list';
 
 export class AgentEnrichmentStrategy {
@@ -17,7 +17,8 @@ export class AgentEnrichmentStrategy {
     fields: EnrichmentField[],
     emailColumn: string,
     onProgress?: (field: string, value: unknown) => void,
-    onAgentProgress?: (message: string, type: 'info' | 'success' | 'warning' | 'agent') => void
+    onAgentProgress?: (message: string, type: 'info' | 'success' | 'warning' | 'agent') => void,
+    enrichmentMode: EnrichmentMode = 'standard'
   ): Promise<RowEnrichmentResult> {
     const email = row[emailColumn];
     console.log(`[AgentEnrichmentStrategy] Starting enrichment for email: ${email}`);
@@ -56,7 +57,8 @@ export class AgentEnrichmentStrategy {
         fields,
         emailColumn,
         onProgress,
-        onAgentProgress
+        onAgentProgress,
+        enrichmentMode
       );
       
       // Filter out null values to match the expected type

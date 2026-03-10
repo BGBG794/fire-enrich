@@ -266,7 +266,10 @@ DOMAIN PARKING/SALE PAGES:
         let value = parsed[field.name];
         let confidence = parsed[`${field.name}_confidence`] as number;
         const sourcesWithQuotes = parsed[`${field.name}_sources`] as Array<{url: string, quote: string}> | null;
-        
+
+        // Log raw values for debugging
+        console.log(`[OPENAI Extract] Field "${field.name}": raw_value=${value !== null && value !== undefined ? `"${String(value).substring(0, 60)}"` : 'null'}, confidence=${confidence}`);
+
         // Filter out invalid placeholder values
         if (value === '/' || value === '-' || value === 'N/A' || value === 'n/a') {
           value = null;
@@ -308,6 +311,9 @@ DOMAIN PARKING/SALE PAGES:
         
         // Only include results with actual data found (confidence > 0.3)
         // This prevents hallucinated data from being shown
+        if (value !== null && value !== undefined && confidence <= 0.3) {
+          console.log(`[OPENAI Extract] FILTERED OUT "${field.name}" (confidence ${confidence} <= 0.3)`);
+        }
         if (value !== null && value !== undefined && confidence > 0.3) {
           results[field.name] = {
             field: field.name,
@@ -327,6 +333,123 @@ DOMAIN PARKING/SALE PAGES:
     } catch (error) {
       console.error('OpenAI extraction error:', error);
       throw new Error('Failed to extract structured data');
+    }
+  }
+
+  /**
+   * Pipeline-specific extraction method.
+   * Unlike extractStructuredDataOriginal (designed for factual extraction),
+   * this method allows analysis, synthesis, and reasoning — suited for
+   * pipeline steps like "Analyse biodiversité" or "Diagnostic stratégique".
+   */
+  async extractPipelineData(
+    content: string,
+    fields: EnrichmentField[],
+    userPrompt: string,
+    identifier: string,
+  ): Promise<Record<string, EnrichmentResult>> {
+    try {
+      const schema = this.createEnrichmentSchema(fields);
+      const fieldDescriptions = fields
+        .map(f => `- ${f.name} (${f.type}): ${f.description}`)
+        .join('\n');
+
+      // Trim content to prevent token overflow
+      const MAX_CONTENT_CHARS = 400000;
+      let trimmedContent = content;
+      if (content.length > MAX_CONTENT_CHARS) {
+        console.log(`[OPENAI Pipeline] Content too long (${content.length} chars), trimming to ${MAX_CONTENT_CHARS} chars`);
+        trimmedContent = content.substring(0, MAX_CONTENT_CHARS) + '\n\n[Content truncated due to length...]';
+      }
+
+      console.log(`[OPENAI Pipeline] Extracting ${fields.length} fields for "${identifier}", content length: ${trimmedContent.length} chars`);
+
+      const response = await this.client.chat.completions.create({
+        model: 'gpt-5',
+        messages: [
+          {
+            role: 'system',
+            content: `You are an expert analyst and researcher. Your task is to analyze the provided data about "${identifier}" and fill in the requested fields based on the user's instructions.
+
+**USER INSTRUCTIONS**:
+${userPrompt}
+
+**FIELDS TO FILL**:
+${fieldDescriptions}
+
+For each field, you must provide:
+1. The extracted or synthesized value
+2. A confidence score (0.0-1.0):
+   - 1.0: Based on explicit data in the content
+   - 0.7-0.9: Based on strong reasoning from available data
+   - 0.4-0.6: Based on reasonable inference
+   - 0.1-0.3: Weak inference, limited data
+   - 0.0: Cannot determine at all
+3. A sources array: [{url, quote}] — include relevant URLs and quotes from the content. If synthesized from multiple data points, cite the most relevant ones. Use an empty array [] if purely analytical.
+
+**IMPORTANT GUIDELINES**:
+- You CAN and SHOULD analyze, synthesize, reason, and draw conclusions from the data
+- You CAN combine information from multiple sources to form assessments
+- You CAN make informed judgments and recommendations based on available evidence
+- For text/string fields: provide detailed, useful, actionable answers
+- For analysis fields: be thorough and specific to "${identifier}"
+- For recommendations: be concrete and relevant to the entity's context
+- For email drafts: write professional, personalized content
+- Return null ONLY if you truly have no data or basis to answer
+- Prefer filling fields with useful analysis over returning null
+- Write in the same language as the user instructions above`,
+          },
+          {
+            role: 'user',
+            content: trimmedContent,
+          },
+        ],
+        response_format: zodResponseFormat(schema, 'enrichment_data'),
+      });
+
+      const messageContent = response.choices[0].message.content;
+      if (!messageContent) {
+        throw new Error('No response content');
+      }
+
+      const parsed = JSON.parse(messageContent);
+
+      // Transform into EnrichmentResult format
+      const results: Record<string, EnrichmentResult> = {};
+
+      fields.forEach(field => {
+        let value = parsed[field.name];
+        const confidence = parsed[`${field.name}_confidence`] as number;
+        const sourcesWithQuotes = parsed[`${field.name}_sources`] as Array<{url: string, quote: string}> | null;
+
+        // Filter out placeholder values
+        if (value === '/' || value === '-' || value === 'N/A' || value === 'n/a' || value === 'Non disponible') {
+          value = null;
+        }
+
+        console.log(`[OPENAI Pipeline] Field "${field.name}": value=${value !== null ? (typeof value === 'string' ? `"${String(value).substring(0, 80)}..."` : JSON.stringify(value)) : 'null'}, confidence=${confidence}`);
+
+        // Accept any non-null value with confidence > 0.0 (much more lenient than standard extraction)
+        if (value !== null && value !== undefined && confidence > 0.0) {
+          results[field.name] = {
+            field: field.name,
+            value,
+            confidence,
+            source: sourcesWithQuotes && sourcesWithQuotes.length > 0
+              ? sourcesWithQuotes.map(s => s.url).join(', ')
+              : 'ai_analysis',
+            sourceContext: sourcesWithQuotes && sourcesWithQuotes.length > 0
+              ? sourcesWithQuotes.map(s => ({ url: s.url, snippet: s.quote }))
+              : undefined,
+          };
+        }
+      });
+
+      console.log(`[OPENAI Pipeline] Extracted ${Object.keys(results).length}/${fields.length} fields for "${identifier}"`);
+      return results;
+    } catch (error) {
+      console.error('[OPENAI Pipeline] Extraction error:', error);
+      throw new Error('Failed to extract pipeline data');
     }
   }
 

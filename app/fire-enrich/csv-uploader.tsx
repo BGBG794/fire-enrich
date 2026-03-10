@@ -24,39 +24,58 @@ export function CSVUploader({ onUpload }: CSVUploaderProps) {
       setError(null);
       setFileName(file.name);
 
+      // Safety timeout: if parsing takes more than 10s, something went wrong
+      const timeout = setTimeout(() => {
+        setIsProcessing(false);
+        setError("CSV parsing timed out. Please try again.");
+      }, 10000);
+
       Papa.parse(file, {
         complete: (results) => {
-          if (results.errors.length > 0) {
-            setError(`CSV parsing error: ${results.errors[0].message}`);
+          clearTimeout(timeout);
+          try {
+            if (results.errors.length > 0) {
+              setError(`CSV parsing error: ${results.errors[0].message}`);
+              setIsProcessing(false);
+              return;
+            }
+
+            if (!results.data || results.data.length === 0) {
+              setError("CSV file is empty");
+              setIsProcessing(false);
+              return;
+            }
+
+            // Get headers from first row
+            const headers = Object.keys(results.data[0] as object);
+            const rows = results.data as CSVRow[];
+
+            // Filter out empty rows
+            const validRows = rows.filter((row) =>
+              Object.values(row).some(
+                (value) => value && String(value).trim() !== "",
+              ),
+            );
+
+            if (validRows.length === 0) {
+              setError("No valid data rows found in CSV");
+              setIsProcessing(false);
+              return;
+            }
+
             setIsProcessing(false);
-            return;
-          }
-
-          if (!results.data || results.data.length === 0) {
-            setError("CSV file is empty");
+            onUpload(validRows, headers);
+          } catch (err) {
+            console.error("CSV processing error:", err);
+            setError(`Processing error: ${err instanceof Error ? err.message : String(err)}`);
             setIsProcessing(false);
-            return;
           }
-
-          // Get headers from first row
-          const headers = Object.keys(results.data[0] as object);
-          const rows = results.data as CSVRow[];
-
-          // Filter out empty rows
-          const validRows = rows.filter((row) =>
-            Object.values(row).some(
-              (value) => value && String(value).trim() !== "",
-            ),
-          );
-
-          if (validRows.length === 0) {
-            setError("No valid data rows found in CSV");
-            setIsProcessing(false);
-            return;
-          }
-
+        },
+        error: (err) => {
+          clearTimeout(timeout);
+          console.error("Papa.parse error:", err);
+          setError(`CSV parsing error: ${err.message}`);
           setIsProcessing(false);
-          onUpload(validRows, headers);
         },
         header: true,
         skipEmptyLines: true,
@@ -175,7 +194,7 @@ export function CSVUploader({ onUpload }: CSVUploaderProps) {
           <p className="text-sm whitespace-pre-line text-red-600">{error}</p>
         </div>
       )}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 h-full p-4 mt-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 h-full p-4 mt-4" onClick={(e) => e.stopPropagation()}>
         {/* Download Sample */}
         <Button
           variant="primary"

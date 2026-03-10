@@ -161,25 +161,25 @@
 }
 
 :root {
-  --sidebar: hsl(0 0% 98%);
-  --sidebar-foreground: hsl(240 5.3% 26.1%);
-  --sidebar-primary: hsl(240 5.9% 10%);
-  --sidebar-primary-foreground: hsl(0 0% 98%);
-  --sidebar-accent: hsl(240 4.8% 95.9%);
-  --sidebar-accent-foreground: hsl(240 5.9% 10%);
-  --sidebar-border: hsl(220 13% 91%);
-  --sidebar-ring: hsl(217.2 91.2% 59.8%);
+  --sidebar: hsl(220 20% 97%);
+  --sidebar-foreground: hsl(220 10% 30%);
+  --sidebar-primary: hsl(220 10% 15%);
+  --sidebar-primary-foreground: hsl(0 0% 100%);
+  --sidebar-accent: hsl(220 15% 93%);
+  --sidebar-accent-foreground: hsl(220 10% 15%);
+  --sidebar-border: hsl(220 13% 90%);
+  --sidebar-ring: hsl(25 95% 53%);
 }
 
 .dark {
-  --sidebar: hsl(240 5.9% 10%);
-  --sidebar-foreground: hsl(240 4.8% 95.9%);
-  --sidebar-primary: hsl(224.3 76.3% 48%);
+  --sidebar: hsl(222 47% 11%);
+  --sidebar-foreground: hsl(215 20% 65%);
+  --sidebar-primary: hsl(25 95% 53%);
   --sidebar-primary-foreground: hsl(0 0% 100%);
-  --sidebar-accent: hsl(240 3.7% 15.9%);
-  --sidebar-accent-foreground: hsl(240 4.8% 95.9%);
-  --sidebar-border: hsl(240 3.7% 15.9%);
-  --sidebar-ring: hsl(217.2 91.2% 59.8%);
+  --sidebar-accent: hsl(217 33% 17%);
+  --sidebar-accent-foreground: hsl(210 40% 98%);
+  --sidebar-border: hsl(217 33% 17%);
+  --sidebar-ring: hsl(25 95% 53%);
 }
 
 @layer base {
@@ -295,6 +295,22 @@
 .animate-processing-row {
   animation: processing-row-pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
   background: linear-gradient(to right, rgb(254 243 199 / 0.5), rgb(254 249 195 / 0.5));
+}
+
+.dark .animate-processing-row {
+  animation: dark-processing-row-pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  background: linear-gradient(to right, rgb(120 53 15 / 0.2), rgb(133 77 14 / 0.2));
+}
+
+@keyframes dark-processing-row-pulse {
+  0%, 100% {
+    opacity: 1;
+    background-color: rgb(120 53 15 / 0.2);
+  }
+  50% {
+    opacity: 0.85;
+    background-color: rgb(133 77 14 / 0.3);
+  }
 }
 
 /* New animations */

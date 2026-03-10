@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AgentEnrichmentStrategy } from '@/lib/strategies/agent-enrichment-strategy';
-import type { EnrichmentRequest, RowEnrichmentResult } from '@/lib/types';
+import { PipelineExecutor } from '@/lib/pipeline/pipeline-executor';
+import type { SearchService } from '@/lib/pipeline/pipeline-executor';
+import { SerperService } from '@/lib/services/serper';
+import { FirecrawlService } from '@/lib/services/firecrawl';
+import type { EnrichmentRequest, RowEnrichmentResult, PipelineConfig } from '@/lib/types';
 import { loadSkipList, shouldSkipEmail, getSkipReason } from '@/lib/utils/skip-list';
 import { ENRICHMENT_CONFIG } from '@/lib/config/enrichment';
+import { saveEnrichmentResult, updateProjectStatus } from '@/lib/db/queries';
 
 // Use Node.js runtime for better compatibility
 export const runtime = 'nodejs';
@@ -21,8 +26,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const body: EnrichmentRequest = await request.json();
-    const { rows, fields, emailColumn, nameColumn } = body;
+    const body = await request.json();
+    const { rows, fields, emailColumn, nameColumn, projectId, enrichmentMode = 'standard' } = body as EnrichmentRequest & { projectId?: string };
+    const pipelineConfig = body.pipelineConfig as PipelineConfig | undefined;
+    const isPipeline = !!pipelineConfig;
 
     if (!rows || rows.length === 0) {
       return NextResponse.json(
@@ -31,18 +38,34 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!fields || fields.length === 0 || fields.length > 10) {
-      return NextResponse.json(
-        { error: 'Please provide 1-10 fields to enrich' },
-        { status: 400 }
-      );
-    }
+    // Validation differs between standard and pipeline mode
+    if (!isPipeline) {
+      if (!fields || fields.length === 0 || fields.length > 10) {
+        return NextResponse.json(
+          { error: 'Please provide 1-10 fields to enrich' },
+          { status: 400 }
+        );
+      }
 
-    if (!emailColumn) {
-      return NextResponse.json(
-        { error: 'Email column is required' },
-        { status: 400 }
-      );
+      if (!emailColumn) {
+        return NextResponse.json(
+          { error: 'Email column is required' },
+          { status: 400 }
+        );
+      }
+    } else {
+      if (!pipelineConfig.steps || pipelineConfig.steps.length === 0) {
+        return NextResponse.json(
+          { error: 'Pipeline must have at least one step' },
+          { status: 400 }
+        );
+      }
+      if (!pipelineConfig.identifierColumn) {
+        return NextResponse.json(
+          { error: 'Pipeline must have an identifier column' },
+          { status: 400 }
+        );
+      }
     }
 
     // Use a more compatible UUID generation
@@ -53,26 +76,46 @@ export async function POST(request: NextRequest) {
     // Check environment variables and headers for API keys
     const openaiApiKey = process.env.OPENAI_API_KEY || request.headers.get('X-OpenAI-API-Key');
     const firecrawlApiKey = process.env.FIRECRAWL_API_KEY || request.headers.get('X-Firecrawl-API-Key');
-    
-    if (!openaiApiKey || !firecrawlApiKey) {
-      console.error('Missing API keys:', { 
-        hasOpenAI: !!openaiApiKey, 
-        hasFirecrawl: !!firecrawlApiKey 
+    const serperApiKey = process.env.SERPER_API_KEY || request.headers.get('X-Serper-API-Key') || undefined;
+    const jinaApiKey = process.env.JINA_API_KEY || request.headers.get('X-Jina-API-Key') || undefined;
+    const anyleadsApiKey = process.env.ANYLEADS_API_KEY || request.headers.get('X-Anyleads-API-Key') || undefined;
+
+    // For pipeline mode, either Serper or Firecrawl is needed for search
+    const hasSearchProvider = serperApiKey || firecrawlApiKey;
+
+    if (!openaiApiKey || !hasSearchProvider) {
+      console.error('Missing API keys:', {
+        hasOpenAI: !!openaiApiKey,
+        hasFirecrawl: !!firecrawlApiKey,
+        hasSerper: !!serperApiKey,
       });
       return NextResponse.json(
-        { error: 'Server configuration error: Missing API keys' },
+        { error: 'Server configuration error: Missing API keys. Need OpenAI + (Serper or Firecrawl).' },
         { status: 500 }
       );
     }
 
-    // Always use the advanced agent architecture
-    const strategyName = 'AgentEnrichmentStrategy';
-    
-    console.log(`[STRATEGY] Using ${strategyName} - Advanced multi-agent architecture with specialized agents`);
-    const enrichmentStrategy = new AgentEnrichmentStrategy(
-      openaiApiKey,
-      firecrawlApiKey
-    );
+    // Initialize strategy based on mode
+    let enrichmentStrategy: AgentEnrichmentStrategy | null = null;
+    let pipelineExecutor: PipelineExecutor | null = null;
+
+    if (isPipeline) {
+      // Prefer Serper (cheaper) over Firecrawl for pipeline search
+      let searchService: SearchService;
+      if (serperApiKey) {
+        console.log(`[STRATEGY] Using Serper for search (pipeline mode)`);
+        searchService = new SerperService(serperApiKey);
+      } else {
+        console.log(`[STRATEGY] Using Firecrawl for search (pipeline mode, no Serper key)`);
+        searchService = new FirecrawlService(firecrawlApiKey!);
+      }
+      console.log(`[STRATEGY] Using PipelineExecutor - ${pipelineConfig.steps.length} steps`);
+      pipelineExecutor = new PipelineExecutor(searchService, openaiApiKey, anyleadsApiKey, jinaApiKey);
+    } else {
+      const strategyName = 'AgentEnrichmentStrategy';
+      console.log(`[STRATEGY] Using ${strategyName} - Advanced multi-agent architecture`);
+      enrichmentStrategy = new AgentEnrichmentStrategy(openaiApiKey, firecrawlApiKey);
+    }
 
     // Load skip list
     const skipList = await loadSkipList();
@@ -90,8 +133,8 @@ export async function POST(request: NextRequest) {
           );
 
           // Process rows with rolling concurrency (as each finishes, start the next)
-          const concurrency = ENRICHMENT_CONFIG.CONCURRENT_ROWS;
-          console.log(`[ENRICHMENT] Processing ${rows.length} rows with rolling concurrency: ${concurrency}`);
+          const concurrency = isPipeline ? 1 : ENRICHMENT_CONFIG.CONCURRENT_ROWS; // Pipeline runs sequentially per row
+          console.log(`[ENRICHMENT] Processing ${rows.length} rows with ${isPipeline ? 'pipeline mode' : `rolling concurrency: ${concurrency}`}`);
 
           // Send pending status for all rows
           for (let i = 0; i < rows.length; i++) {
@@ -106,7 +149,7 @@ export async function POST(request: NextRequest) {
             );
           }
 
-          // Process rows with rolling concurrency
+          // Process rows
           const processRow = async (i: number) => {
             // Check if cancelled
             if (abortController.signal.aborted) {
@@ -114,36 +157,37 @@ export async function POST(request: NextRequest) {
             }
 
             const row = rows[i];
-            const email = row[emailColumn];
 
-            // Add name to row context if nameColumn is provided
-            if (nameColumn && row[nameColumn]) {
-              row._name = row[nameColumn];
-            }
+            // Skip list check (only for standard mode with email)
+            if (!isPipeline) {
+              const email = row[emailColumn];
 
-            // Check if email should be skipped
-            if (email && shouldSkipEmail(email, skipList)) {
-              const skipReason = getSkipReason(email, skipList);
+              // Add name to row context if nameColumn is provided
+              if (nameColumn && row[nameColumn]) {
+                row._name = row[nameColumn];
+              }
 
-              // Send skip result
-              const skipResult: RowEnrichmentResult = {
-                rowIndex: i,
-                originalData: row,
-                enrichments: {},
-                status: 'skipped',
-                error: skipReason,
-              };
+              if (email && shouldSkipEmail(email, skipList)) {
+                const skipReason = getSkipReason(email, skipList);
+                const skipResult: RowEnrichmentResult = {
+                  rowIndex: i,
+                  originalData: row,
+                  enrichments: {},
+                  status: 'skipped',
+                  error: skipReason,
+                };
 
-              controller.enqueue(
-                encoder.encode(
-                  `data: ${JSON.stringify({
-                    type: 'result',
-                    result: skipResult,
-                  })}\n\n`
-                )
-              );
+                controller.enqueue(
+                  encoder.encode(
+                    `data: ${JSON.stringify({ type: 'result', result: skipResult })}\n\n`
+                  )
+                );
 
-              return;
+                if (projectId) {
+                  try { saveEnrichmentResult(projectId, i, {}, 'skipped', skipReason); } catch (e) { console.error('[DB] Failed to save skip result:', e); }
+                }
+                return;
+              }
             }
 
             // Send processing status
@@ -158,56 +202,101 @@ export async function POST(request: NextRequest) {
             );
 
             try {
-              // Enrich the row
-              console.log(`[ENRICHMENT] Processing row ${i + 1}/${rows.length} - Email: ${email} - Strategy: ${strategyName}`);
               const startTime = Date.now();
+              let result: RowEnrichmentResult;
 
-              // Agent strategies return RowEnrichmentResult
-              const result = await enrichmentStrategy.enrichRow(
-                row,
-                fields,
-                emailColumn,
-                undefined, // onProgress
-                (message: string, type: 'info' | 'success' | 'warning' | 'agent', sourceUrl?: string) => {
-                  // Stream agent progress messages
-                  controller.enqueue(
-                    encoder.encode(
-                      `data: ${JSON.stringify({
-                        type: 'agent_progress',
-                        rowIndex: i,
-                        message,
-                        messageType: type,
-                        sourceUrl, // Include sourceUrl for favicons
-                      })}\n\n`
-                    )
-                  );
-                }
-              );
-              result.rowIndex = i; // Set the correct row index
+              if (isPipeline && pipelineExecutor && pipelineConfig) {
+                // Pipeline mode
+                const identifier = row[pipelineConfig.identifierColumn] || `Row ${i + 1}`;
+                console.log(`[PIPELINE] Processing row ${i + 1}/${rows.length} - ${identifier}`);
+
+                result = await pipelineExecutor.executeRow(
+                  row,
+                  pipelineConfig,
+                  (message: string, type: 'info' | 'success' | 'warning' | 'agent') => {
+                    controller.enqueue(
+                      encoder.encode(
+                        `data: ${JSON.stringify({
+                          type: 'agent_progress',
+                          rowIndex: i,
+                          message,
+                          messageType: type,
+                        })}\n\n`
+                      )
+                    );
+                  },
+                  (stepId: string, stepName: string, message: string) => {
+                    controller.enqueue(
+                      encoder.encode(
+                        `data: ${JSON.stringify({
+                          type: 'step_progress',
+                          rowIndex: i,
+                          stepId,
+                          stepName,
+                          message,
+                        })}\n\n`
+                      )
+                    );
+                  },
+                  (stepId: string, stepResult) => {
+                    controller.enqueue(
+                      encoder.encode(
+                        `data: ${JSON.stringify({
+                          type: 'step_complete',
+                          rowIndex: i,
+                          stepId,
+                          stepResult,
+                        })}\n\n`
+                      )
+                    );
+                  },
+                );
+              } else if (enrichmentStrategy) {
+                // Standard mode
+                const email = row[emailColumn];
+                console.log(`[ENRICHMENT] Processing row ${i + 1}/${rows.length} - Email: ${email}`);
+
+                result = await enrichmentStrategy.enrichRow(
+                  row,
+                  fields,
+                  emailColumn,
+                  undefined,
+                  (message: string, type: 'info' | 'success' | 'warning' | 'agent', sourceUrl?: string) => {
+                    controller.enqueue(
+                      encoder.encode(
+                        `data: ${JSON.stringify({
+                          type: 'agent_progress',
+                          rowIndex: i,
+                          message,
+                          messageType: type,
+                          sourceUrl,
+                        })}\n\n`
+                      )
+                    );
+                  },
+                  enrichmentMode
+                );
+              } else {
+                throw new Error('No enrichment strategy configured');
+              }
+
+              result.rowIndex = i;
 
               const duration = Date.now() - startTime;
               console.log(`[ENRICHMENT] Completed row ${i + 1} in ${duration}ms - Fields enriched: ${Object.keys(result.enrichments).length}`);
 
-              // Log which fields were successfully enriched
-              const enrichedFields = Object.entries(result.enrichments)
-                .filter(([, enrichment]) => enrichment.value)
-                .map(([fieldName, enrichment]) => `${fieldName}: ${enrichment.value ? '✓' : '✗'}`)
-                .join(', ');
-              if (enrichedFields) {
-                console.log(`[ENRICHMENT] Fields: ${enrichedFields}`);
+              // Persist result to DB
+              if (projectId) {
+                try { saveEnrichmentResult(projectId, i, result.enrichments, result.status, result.error); } catch (e) { console.error('[DB] Failed to save result:', e); }
               }
 
               // Send result
               controller.enqueue(
                 encoder.encode(
-                  `data: ${JSON.stringify({
-                    type: 'result',
-                    result,
-                  })}\n\n`
+                  `data: ${JSON.stringify({ type: 'result', result })}\n\n`
                 )
               );
             } catch (error) {
-              // Send error for this row
               const errorResult: RowEnrichmentResult = {
                 rowIndex: i,
                 originalData: row,
@@ -216,12 +305,13 @@ export async function POST(request: NextRequest) {
                 error: error instanceof Error ? error.message : 'Unknown error',
               };
 
+              if (projectId) {
+                try { saveEnrichmentResult(projectId, i, {}, 'error', errorResult.error); } catch (e) { console.error('[DB] Failed to save error result:', e); }
+              }
+
               controller.enqueue(
                 encoder.encode(
-                  `data: ${JSON.stringify({
-                    type: 'result',
-                    result: errorResult,
-                  })}\n\n`
+                  `data: ${JSON.stringify({ type: 'result', result: errorResult })}\n\n`
                 )
               );
             }
@@ -259,6 +349,11 @@ export async function POST(request: NextRequest) {
             if (activePromises.length > 0) {
               await Promise.race(activePromises);
             }
+          }
+
+          // Update project status
+          if (projectId) {
+            try { updateProjectStatus(projectId, 'completed'); } catch (e) { console.error('[DB] Failed to update project status:', e); }
           }
 
           // Send completion

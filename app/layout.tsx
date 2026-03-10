@@ -26,12 +26,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" className="dark">
       <head>
         <ColorStyles />
       </head>
       <body
-        className={`${GeistMono.variable} ${robotoMono.variable} font-sans text-accent-black bg-background-base overflow-x-clip`}
+        className={`${GeistMono.variable} ${robotoMono.variable} font-sans text-foreground bg-background overflow-x-clip`}
       >
         <main className="overflow-x-clip">{children}</main>
         <Scrollbar />

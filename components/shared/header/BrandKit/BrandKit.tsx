@@ -108,7 +108,7 @@ const Menu = ({ setOpen }: { setOpen: (open: boolean) => void }) => {
   return (
     <motion.div
       animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
-      className="absolute w-220 whitespace-nowrap rounded-16 p-4 bg-white left-0 top-[calc(100%+8px)] z-[2000] border border-border-faint"
+      className="absolute w-220 whitespace-nowrap rounded-16 p-4 bg-card left-0 top-[calc(100%+8px)] z-[2000] border border-border"
       exit={{ opacity: 0, y: 8, scale: 0.98, filter: "blur(1px)" }}
       initial={{ opacity: 0, y: -6, filter: "blur(1px)" }}
       style={{

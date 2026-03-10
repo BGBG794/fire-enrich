@@ -43,12 +43,19 @@ export class FirecrawlService {
         }));
       } catch (error) {
         const errorWithStatus = error as { statusCode?: number; message?: string };
-        const isRetryableError = 
-          errorWithStatus?.statusCode === 502 || 
-          errorWithStatus?.statusCode === 503 || 
+
+        // 402 = insufficient credits — fatal, stop immediately
+        if (errorWithStatus?.statusCode === 402) {
+          console.error('Firecrawl: Insufficient credits (402). Stopping.');
+          throw new Error('Firecrawl: Insufficient credits. Please recharge at https://firecrawl.dev/pricing');
+        }
+
+        const isRetryableError =
+          errorWithStatus?.statusCode === 502 ||
+          errorWithStatus?.statusCode === 503 ||
           errorWithStatus?.statusCode === 504 ||
           errorWithStatus?.statusCode === 429;
-        
+
         if (isRetryableError && attempt < maxRetries - 1) {
           const delay = baseDelay * Math.pow(2, attempt);
           console.warn(`Firecrawl search failed (attempt ${attempt + 1}/${maxRetries}), retrying in ${delay}ms...`);
@@ -56,10 +63,10 @@ export class FirecrawlService {
           await new Promise(resolve => setTimeout(resolve, delay));
           continue;
         }
-        
+
         console.error('Firecrawl search error:', error);
         console.error('Query:', query);
-        
+
         // Return empty results instead of throwing
         // This allows enrichment to continue with other data sources
         return [];

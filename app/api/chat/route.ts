@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { SerperService } from '@/lib/services/serper';
 import { FirecrawlService } from '@/lib/services/firecrawl';
+import { JinaService } from '@/lib/services/jina';
 import { OpenAIService } from '@/lib/services/openai';
+import type { SearchResult } from '@/lib/types';
 
 export const runtime = 'nodejs';
 
@@ -21,8 +24,11 @@ export async function POST(request: NextRequest) {
     // Get API keys
     const openaiApiKey = process.env.OPENAI_API_KEY || request.headers.get('X-OpenAI-API-Key');
     const firecrawlApiKey = process.env.FIRECRAWL_API_KEY || request.headers.get('X-Firecrawl-API-Key');
+    const serperApiKey = process.env.SERPER_API_KEY || request.headers.get('X-Serper-API-Key') || undefined;
+    const jinaApiKey = process.env.JINA_API_KEY || request.headers.get('X-Jina-API-Key') || undefined;
 
-    if (!openaiApiKey || !firecrawlApiKey) {
+    const hasSearchProvider = serperApiKey || firecrawlApiKey;
+    if (!openaiApiKey || !hasSearchProvider) {
       return NextResponse.json(
         { error: 'Missing API keys' },
         { status: 500 }
@@ -34,7 +40,11 @@ export async function POST(request: NextRequest) {
     const queryId = sessionId || `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
     activeQueries.set(queryId, abortController);
 
-    const firecrawl = new FirecrawlService(firecrawlApiKey);
+    // Prefer Serper for search, fallback to Firecrawl
+    const searchService = serperApiKey
+      ? new SerperService(serperApiKey)
+      : new FirecrawlService(firecrawlApiKey!);
+    const jina = new JinaService(jinaApiKey);
     const openai = new OpenAIService(openaiApiKey);
 
     // Create streaming response
@@ -131,7 +141,7 @@ export async function POST(request: NextRequest) {
             )
           );
 
-          const searchResults = await firecrawl.search(searchQuery, { limit: 5 });
+          const searchResults = await searchService.search(searchQuery, { limit: 5 });
 
           if (searchResults.length === 0) {
             controller.enqueue(
@@ -193,7 +203,7 @@ export async function POST(request: NextRequest) {
             )
           );
 
-          const scrapedData = await firecrawl.scrapeUrl(bestSource.url);
+          const scrapedContent = await jina.scrape(bestSource.url);
 
           controller.enqueue(
             encoder.encode(
@@ -219,7 +229,7 @@ export async function POST(request: NextRequest) {
           // Step 5: Generate conversational response
           const response = await openai.generateConversationalResponse(
             question,
-            scrapedData.data?.markdown || '',
+            scrapedContent || '',
             {
               ...context,
               conversationHistory

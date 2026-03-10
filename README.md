@@ -240,9 +240,10 @@ This design allows Fire Enrich to grow with your needs while maintaining type sa
 
 ### The Multi-Agent System
 
-Fire Enrich employs a sophisticated orchestration system that coordinates specialized extraction modules. These aren't autonomous AI agents, but rather purpose-built components that work together intelligently:
 
--   **Discovery Phase**: Establishes the foundation by identifying the company and its digital presence
+
+-   **Discovery Phase**: Establishes the foundati
+on by identifying the company and its digital presence
 -   **Profile Extraction**: Specialized logic for industry classification and business model analysis
 -   **Financial Intelligence**: Targeted searches across venture databases and news sources
 -   **Technical Analysis**: Deep inspection including HTML parsing and repository analysis

@@ -23,17 +23,19 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import { CSVRow, EnrichmentField } from "@/lib/types";
+import { CSVRow, EnrichmentField, EnrichmentMode, PipelineConfig } from "@/lib/types";
 import { detectEmailColumn, EMAIL_REGEX } from "@/lib/utils/email-detection";
 import { generateVariableName } from "@/lib/utils/field-utils";
-import { X, Plus, Sparkles, ChevronDown, ChevronUp, ArrowLeft, Copy } from "lucide-react";
+import { X, Plus, Sparkles, ChevronDown, ChevronUp, ArrowLeft, Copy, Zap, Workflow } from "lucide-react";
 import { toast } from "sonner";
 import { AlertCircle } from "lucide-react";
+import { PipelineBuilder } from "./pipeline-builder";
 
 interface UnifiedEnrichmentViewProps {
   rows: CSVRow[];
   columns: string[];
-  onStartEnrichment: (emailColumn: string, fields: EnrichmentField[]) => void;
+  onStartEnrichment: (emailColumn: string, fields: EnrichmentField[], enrichmentMode?: EnrichmentMode) => void;
+  onStartPipeline?: (config: PipelineConfig) => void;
 }
 
 const PRESET_FIELDS: EnrichmentField[] = [
@@ -94,13 +96,86 @@ const PRESET_FIELDS: EnrichmentField[] = [
     type: "string",
     required: false,
   },
+  {
+    name: "website",
+    displayName: "Website",
+    description: "The company's main website URL",
+    type: "string",
+    required: false,
+  },
+  {
+    name: "linkedinUrl",
+    displayName: "LinkedIn URL",
+    description: "The company's LinkedIn profile URL",
+    type: "string",
+    required: false,
+  },
+  {
+    name: "ceoName",
+    displayName: "CEO Name",
+    description: "The name of the company's CEO or founder",
+    type: "string",
+    required: false,
+  },
+  {
+    name: "techStack",
+    displayName: "Tech Stack",
+    description: "Main technologies and tools used by the company",
+    type: "string",
+    required: false,
+  },
+  {
+    name: "revenue",
+    displayName: "Revenue",
+    description: "Estimated annual revenue of the company",
+    type: "string",
+    required: false,
+  },
+  {
+    name: "isB2B",
+    displayName: "Is B2B",
+    description: "Whether the company primarily sells to other businesses (B2B) rather than consumers",
+    type: "boolean",
+    required: false,
+  },
+];
+
+interface FieldTemplate {
+  name: string;
+  description: string;
+  fields: string[]; // references PRESET_FIELDS by name
+}
+
+const FIELD_TEMPLATES: FieldTemplate[] = [
+  {
+    name: "Company Overview",
+    description: "Basic company info",
+    fields: ["companyName", "companyDescription", "industry", "headquarters", "website"],
+  },
+  {
+    name: "Funding & Finance",
+    description: "Investment and revenue data",
+    fields: ["fundingRaised", "fundingStage", "revenue", "yearFounded"],
+  },
+  {
+    name: "Sales Intelligence",
+    description: "Ideal for outbound sales",
+    fields: ["companyName", "ceoName", "industry", "employeeCount", "isB2B", "linkedinUrl"],
+  },
+  {
+    name: "Tech Analysis",
+    description: "Technology focus",
+    fields: ["companyName", "techStack", "industry", "employeeCount"],
+  },
 ];
 
 export function UnifiedEnrichmentView({
   rows,
   columns,
   onStartEnrichment,
+  onStartPipeline,
 }: UnifiedEnrichmentViewProps) {
+  const [mode, setMode] = useState<'standard' | 'pipeline'>('standard');
   const [step, setStep] = useState<1 | 2>(1);
   const [emailColumn, setEmailColumn] = useState<string>("");
   const [selectedFields, setSelectedFields] = useState<EnrichmentField[]>([
@@ -117,6 +192,7 @@ export function UnifiedEnrichmentView({
   const [showAllRows, setShowAllRows] = useState(false);
   const [showEmailDropdown, setShowEmailDropdown] = useState(false);
   const [showEmailDropdownStep1, setShowEmailDropdownStep1] = useState(false);
+  const [enrichmentMode, setEnrichmentMode] = useState<EnrichmentMode>('standard');
   const [customField, setCustomField] = useState<{
     name: string;
     description: string;
@@ -244,6 +320,48 @@ export function UnifiedEnrichmentView({
 
   return (
     <div className="stack space-y-8">
+      {/* Mode Toggle */}
+      <div className="flex justify-center">
+        <div className="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-0.5">
+          <button
+            onClick={() => setMode('standard')}
+            className={cn(
+              "px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center gap-2",
+              mode === 'standard'
+                ? "bg-white shadow-sm text-gray-900"
+                : "text-gray-500 hover:text-gray-700"
+            )}
+          >
+            <Zap className="w-3.5 h-3.5" />
+            Standard Enrichment
+          </button>
+          <button
+            onClick={() => setMode('pipeline')}
+            className={cn(
+              "px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center gap-2",
+              mode === 'pipeline'
+                ? "bg-white shadow-sm text-gray-900"
+                : "text-gray-500 hover:text-gray-700"
+            )}
+          >
+            <Workflow className="w-3.5 h-3.5" />
+            Pipeline Mode
+          </button>
+        </div>
+      </div>
+
+      {/* Pipeline Mode */}
+      {mode === 'pipeline' && (
+        <div className="w-full">
+          <PipelineBuilder
+            columns={columns}
+            onStartPipeline={(config) => onStartPipeline?.(config)}
+          />
+        </div>
+      )}
+
+      {/* Standard Mode */}
+      {mode === 'standard' && <>
       {/* Table Preview at the top */}
       <div className="w-full">
         <div className="overflow-x-auto rounded-md border border-border-muted bg-white shadow-sm min-w-0">
@@ -610,6 +728,67 @@ export function UnifiedEnrichmentView({
               </div>
             </div>
 
+            {/* Templates */}
+            <Card className="p-16 border-gray-200 bg-white rounded-8">
+              <Label className="text-body-medium font-semibold text-gray-900 mb-12 block flex items-center gap-2">
+                <Zap size={14} className="text-amber-500" />
+                Templates
+              </Label>
+              <div className="grid grid-cols-2 gap-6">
+                {FIELD_TEMPLATES.map((template) => {
+                  const templateFields = template.fields
+                    .map((name) => PRESET_FIELDS.find((f) => f.name === name))
+                    .filter(Boolean) as EnrichmentField[];
+                  const allSelected = templateFields.every((f) =>
+                    selectedFields.find((sf) => sf.name === f.name)
+                  );
+                  return (
+                    <button
+                      key={template.name}
+                      onClick={() => {
+                        if (allSelected) {
+                          // Remove all template fields
+                          setSelectedFields((prev) =>
+                            prev.filter((f) => !template.fields.includes(f.name))
+                          );
+                        } else {
+                          // Add missing template fields
+                          const newFields = [...selectedFields];
+                          for (const f of templateFields) {
+                            if (!newFields.find((sf) => sf.name === f.name)) {
+                              if (newFields.length >= 10) break;
+                              newFields.push(f);
+                            }
+                          }
+                          setSelectedFields(newFields);
+                        }
+                      }}
+                      className={cn(
+                        "p-10 rounded-6 border text-left transition-all",
+                        allSelected
+                          ? "border-gray-900 bg-gray-50"
+                          : "border-gray-200 hover:border-gray-400 bg-white"
+                      )}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-body-medium font-medium text-gray-900">
+                          {template.name}
+                        </span>
+                        {allSelected && (
+                          <span className="text-body-x-small bg-gray-900 text-white px-4 py-1 rounded-full">
+                            Active
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-body-small text-gray-500">
+                        {template.description} ({templateFields.length} fields)
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+            </Card>
+
             {/* Preset fields */}
             <Card className="p-16 border-gray-200 bg-white rounded-8">
               <Label className="text-body-medium font-semibold text-gray-900 mb-12 block">
@@ -838,6 +1017,54 @@ export function UnifiedEnrichmentView({
               </Card>
             )}
 
+            {/* Enrichment Mode */}
+            <Card className="p-16 border-gray-200 bg-white rounded-8">
+              <Label className="text-body-medium font-semibold text-gray-900 mb-12 block flex items-center gap-2">
+                <Sparkles size={14} className="text-orange-500" />
+                Enrichment Quality
+              </Label>
+              <div className="grid grid-cols-2 gap-6">
+                <button
+                  onClick={() => setEnrichmentMode('standard')}
+                  className={cn(
+                    "p-10 rounded-6 border text-left transition-all",
+                    enrichmentMode === 'standard'
+                      ? "border-gray-900 bg-gray-50"
+                      : "border-gray-200 hover:border-gray-400 bg-white"
+                  )}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-body-medium font-medium text-gray-900">Standard</span>
+                    {enrichmentMode === 'standard' && (
+                      <span className="text-body-x-small bg-gray-900 text-white px-4 py-1 rounded-full">Active</span>
+                    )}
+                  </div>
+                  <p className="text-body-small text-gray-500">
+                    Single pass enrichment. Fast and cost-effective.
+                  </p>
+                </button>
+                <button
+                  onClick={() => setEnrichmentMode('thorough')}
+                  className={cn(
+                    "p-10 rounded-6 border text-left transition-all",
+                    enrichmentMode === 'thorough'
+                      ? "border-orange-500 bg-orange-50"
+                      : "border-gray-200 hover:border-gray-400 bg-white"
+                  )}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-body-medium font-medium text-gray-900">Thorough</span>
+                    {enrichmentMode === 'thorough' && (
+                      <span className="text-body-x-small bg-orange-500 text-white px-4 py-1 rounded-full">Active</span>
+                    )}
+                  </div>
+                  <p className="text-body-small text-gray-500">
+                    Waterfall: re-searches low-confidence fields from alternative sources. Slower but more accurate.
+                  </p>
+                </button>
+              </div>
+            </Card>
+
             {/* Navigation Buttons */}
             <div className="flex justify-between pt-16">
               <button
@@ -848,7 +1075,7 @@ export function UnifiedEnrichmentView({
                 Back
               </button>
               <button
-                onClick={() => onStartEnrichment(emailColumn, selectedFields)}
+                onClick={() => onStartEnrichment(emailColumn, selectedFields, enrichmentMode)}
                 disabled={selectedFields.length === 0}
                 className="rounded-8 px-10 py-6 gap-4 text-body-medium text-accent-black bg-black-alpha-4 hover:bg-black-alpha-6 transition-colors flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
               >
@@ -859,6 +1086,7 @@ export function UnifiedEnrichmentView({
         )}
         </AnimatePresence>
       </div>
+      </>}
     </div>
   );
 }

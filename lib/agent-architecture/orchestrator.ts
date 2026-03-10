@@ -1,8 +1,9 @@
 import { EmailContext, RowEnrichmentResult } from './core/types';
-import { EnrichmentResult, SearchResult, EnrichmentField } from '../types';
+import { EnrichmentResult, SearchResult, EnrichmentField, EnrichmentMode } from '../types';
 import { parseEmail } from '../strategies/email-parser';
 import { FirecrawlService } from '../services/firecrawl';
 import { OpenAIService } from '../services/openai';
+import { ENRICHMENT_CONFIG } from '../config/enrichment';
 
 export class AgentOrchestrator {
   private firecrawl: FirecrawlService;
@@ -21,7 +22,8 @@ export class AgentOrchestrator {
     fields: EnrichmentField[],
     emailColumn: string,
     onProgress?: (field: string, value: unknown) => void,
-    onAgentProgress?: (message: string, type: 'info' | 'success' | 'warning' | 'agent') => void
+    onAgentProgress?: (message: string, type: 'info' | 'success' | 'warning' | 'agent') => void,
+    enrichmentMode: EnrichmentMode = 'standard'
   ): Promise<RowEnrichmentResult> {
     const email = row[emailColumn];
     console.log(`[Orchestrator] Starting enrichment for email: ${email}`);
@@ -240,14 +242,62 @@ export class AgentOrchestrator {
       }
       
       // Convert to enrichment result format
-      const enrichmentResults = this.formatEnrichmentResults(enrichments, fields);
-      
+      let enrichmentResults = this.formatEnrichmentResults(enrichments, fields);
+
+      // Waterfall pass: re-enrich low-confidence or missing fields
+      if (enrichmentMode === 'thorough') {
+        const threshold = ENRICHMENT_CONFIG.WATERFALL_CONFIDENCE_THRESHOLD;
+        const weakFields = fields.filter(f => {
+          const result = enrichmentResults[f.name];
+          return !result || !result.value || result.confidence < threshold;
+        });
+
+        if (weakFields.length > 0) {
+          console.log(`[Orchestrator] ====== WATERFALL PASS ======`);
+          console.log(`[Orchestrator] ${weakFields.length} fields below threshold (${threshold}): ${weakFields.map(f => f.name).join(', ')}`);
+
+          if (onAgentProgress) {
+            onAgentProgress(`Waterfall: ${weakFields.length} fields need deeper research`, 'agent');
+          }
+
+          const waterfallResults = await this.runWaterfallPass(
+            context,
+            weakFields,
+            enrichmentResults,
+            onAgentProgress
+          );
+
+          // Merge: keep waterfall result only if it's better
+          for (const [fieldName, waterfallResult] of Object.entries(waterfallResults)) {
+            const existing = enrichmentResults[fieldName];
+            if (!existing || !existing.value ||
+                (waterfallResult.value && waterfallResult.confidence > (existing.confidence || 0))) {
+              enrichmentResults[fieldName] = waterfallResult;
+              if (onProgress) {
+                onProgress(fieldName, waterfallResult);
+              }
+            }
+          }
+
+          if (onAgentProgress) {
+            const improved = Object.keys(waterfallResults).length;
+            onAgentProgress(`Waterfall complete: improved ${improved} fields`, improved > 0 ? 'success' : 'warning');
+          }
+        } else {
+          console.log(`[Orchestrator] All fields above confidence threshold (${threshold}), skipping waterfall pass`);
+          if (onAgentProgress) {
+            onAgentProgress(`All fields have high confidence, waterfall pass skipped`, 'success');
+          }
+        }
+      }
+
       // Log final enrichment summary
       const enrichedFields = Object.entries(enrichmentResults).filter(([, r]) => r.value).map(([name]) => name);
       const missingFields = fields.filter(f => !enrichmentResults[f.name]?.value).map(f => f.name);
-      
+
       console.log(`[Orchestrator] ====== ENRICHMENT SUMMARY ======`);
       console.log(`[Orchestrator] Email: ${email}`);
+      console.log(`[Orchestrator] Mode: ${enrichmentMode}`);
       console.log(`[Orchestrator] Successfully enriched: ${enrichedFields.length}/${fields.length} fields`);
       if (enrichedFields.length > 0) {
         console.log(`[Orchestrator] Enriched fields: ${enrichedFields.join(', ')}`);
@@ -256,7 +306,7 @@ export class AgentOrchestrator {
         console.log(`[Orchestrator] Missing fields: ${missingFields.join(', ')}`);
       }
       console.log(`[Orchestrator] ================================`);
-      
+
       return {
         rowIndex: 0,
         originalData: row,
@@ -1742,6 +1792,149 @@ export class AgentOrchestrator {
     return Array.from(technologies).filter(tech => tech && tech.length > 0);
   }
   
+  private async runWaterfallPass(
+    context: Record<string, unknown>,
+    weakFields: EnrichmentField[],
+    existingResults: Record<string, EnrichmentResult>,
+    onAgentProgress?: (message: string, type: 'info' | 'success' | 'warning' | 'agent') => void
+  ): Promise<Record<string, EnrichmentResult>> {
+    const ctxEmailContext = context['emailContext'] as EmailContext;
+    const ctxCompanyName = context['companyName'] as string | undefined;
+    const ctxDiscoveredData = context['discoveredData'] as Record<string, unknown>;
+
+    // Resolve company name from context
+    let companyName = ctxCompanyName;
+    if (!companyName) {
+      const cnField = Object.keys(ctxDiscoveredData || {}).find(k =>
+        k.toLowerCase().includes('company') && k.toLowerCase().includes('name')
+      );
+      if (cnField) {
+        const cnVal = ctxDiscoveredData[cnField] as { value?: unknown } | unknown;
+        companyName = (cnVal && typeof cnVal === 'object' && 'value' in cnVal ? cnVal.value : cnVal) as string;
+      }
+    }
+    companyName = companyName || ctxEmailContext?.companyNameGuess || ctxEmailContext?.domain?.split('.')[0];
+
+    const results: Record<string, EnrichmentResult> = {};
+
+    // Build alternative search queries targeting different data sources
+    const alternativeQueries: string[] = [];
+    const companyRef = companyName || ctxEmailContext?.domain;
+
+    if (companyRef) {
+      // Crunchbase / startup databases
+      alternativeQueries.push(`"${companyRef}" crunchbase OR pitchbook OR tracxn company profile`);
+      // LinkedIn / professional networks
+      alternativeQueries.push(`"${companyRef}" linkedin company about employees`);
+      // Wikipedia / general knowledge
+      alternativeQueries.push(`"${companyRef}" wikipedia OR wiki company information`);
+      // News / press
+      alternativeQueries.push(`"${companyRef}" press release announcement ${new Date().getFullYear()}`);
+    }
+
+    console.log(`[WATERFALL] Running second pass for ${weakFields.length} fields with ${alternativeQueries.length} alternative queries`);
+
+    // Collect search results from alternative sources
+    interface WaterfallSearchResult {
+      url: string;
+      title?: string;
+      markdown?: string;
+    }
+
+    let allResults: WaterfallSearchResult[] = [];
+
+    for (const query of alternativeQueries) {
+      if (allResults.length >= 8) break;
+      try {
+        console.log(`[WATERFALL] Searching: ${query.substring(0, 80)}...`);
+        if (onAgentProgress) {
+          onAgentProgress(`Waterfall search: ${query.substring(0, 60)}...`, 'info');
+        }
+        const searchResults = await this.firecrawl.search(query, { limit: 3, scrapeContent: true });
+        if (searchResults && searchResults.length > 0) {
+          allResults = allResults.concat(searchResults as WaterfallSearchResult[]);
+          if (onAgentProgress) {
+            onAgentProgress(`Found ${searchResults.length} additional sources`, 'success');
+          }
+        }
+      } catch (err) {
+        console.log(`[WATERFALL] Search failed: ${err}`);
+      }
+    }
+
+    // Deduplicate
+    const uniqueResults = Array.from(
+      new Map(allResults.map(r => [r.url, r])).values()
+    ).filter(r => r.markdown && r.markdown.length > 100);
+
+    console.log(`[WATERFALL] ${uniqueResults.length} unique valid results collected`);
+
+    if (uniqueResults.length === 0) {
+      console.log('[WATERFALL] No additional sources found, skipping extraction');
+      return results;
+    }
+
+    // Build context telling the LLM what we already know and what we need
+    const existingInfo = Object.entries(existingResults)
+      .filter(([, r]) => r.value)
+      .map(([name, r]) => `${name}: ${r.value} (confidence: ${r.confidence})`)
+      .join('\n');
+
+    const targetCompanyNotice = `\n\n[IMPORTANT: You are looking for information about "${String(companyName || ctxEmailContext?.domain)}" ONLY. Ignore information about other companies.]\n\n`;
+    const alreadyKnown = existingInfo ? `\n\nAlready known (verify and improve if possible):\n${existingInfo}\n\n` : '';
+    const trimmedResults = this.trimSearchResultsContent(uniqueResults as SearchResult[], 250000);
+    const combinedContent = targetCompanyNotice + alreadyKnown + trimmedResults;
+
+    if (onAgentProgress) {
+      onAgentProgress(`Extracting ${weakFields.length} fields from ${uniqueResults.length} new sources...`, 'info');
+    }
+
+    // Extract structured data for weak fields only
+    const enrichmentContext: Record<string, string> = {};
+    if (companyName && typeof companyName === 'string') enrichmentContext.companyName = companyName;
+    if (ctxEmailContext?.companyDomain) enrichmentContext.targetDomain = ctxEmailContext.companyDomain;
+
+    try {
+      const extractedResults = typeof this.openai.extractStructuredDataWithCorroboration === 'function'
+        ? await this.openai.extractStructuredDataWithCorroboration(
+            combinedContent,
+            weakFields,
+            enrichmentContext,
+            onAgentProgress
+          )
+        : await this.openai.extractStructuredDataOriginal(
+            combinedContent,
+            weakFields,
+            enrichmentContext
+          );
+
+      // Add source URLs and build final results
+      for (const [fieldName, enrichment] of Object.entries(extractedResults)) {
+        if (enrichment && enrichment.value) {
+          if (!enrichment.source) {
+            enrichment.source = uniqueResults.slice(0, 2).map(r => r.url).join(', ');
+          }
+          if (!enrichment.sourceContext || enrichment.sourceContext.length === 0) {
+            enrichment.sourceContext = uniqueResults.slice(0, 3).map(r => ({
+              url: r.url,
+              snippet: `Waterfall pass: found in additional source`
+            }));
+          }
+          results[fieldName] = enrichment;
+          console.log(`[WATERFALL] Improved field "${fieldName}": confidence ${enrichment.confidence}`);
+        }
+      }
+    } catch (err) {
+      console.error(`[WATERFALL] Extraction failed:`, err);
+      if (onAgentProgress) {
+        onAgentProgress(`Waterfall extraction failed: ${err instanceof Error ? err.message : 'Unknown error'}`, 'warning');
+      }
+    }
+
+    console.log(`[WATERFALL] Pass complete: ${Object.keys(results).length} fields improved`);
+    return results;
+  }
+
   private formatEnrichmentResults(
     enrichments: Record<string, unknown>,
     fields: EnrichmentField[]

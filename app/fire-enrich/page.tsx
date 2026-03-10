@@ -8,7 +8,9 @@ import { ArrowLeft, ExternalLink, Loader2 } from "lucide-react";
 import { CSVUploader } from "./csv-uploader";
 import { UnifiedEnrichmentView } from "./unified-enrichment-view";
 import { EnrichmentTable } from "./enrichment-table";
-import { CSVRow, EnrichmentField } from "@/lib/types";
+import { CSVRow, EnrichmentField, PipelineConfig } from "@/lib/types";
+import { OutreachDashboard } from "./outreach/outreach-dashboard";
+import { safeLocalStorage } from "@/lib/utils/safe-storage";
 import {
   Dialog,
   DialogContent,
@@ -21,7 +23,8 @@ import Input from "@/components/ui/input";
 import { toast } from "sonner";
 
 export default function CSVEnrichmentPage() {
-  const [step, setStep] = useState<"upload" | "setup" | "enrichment">("upload");
+  const [step, setStep] = useState<"upload" | "setup" | "enrichment" | "outreach">("upload");
+  const [projectId, setProjectId] = useState<string | null>(null);
   const [csvData, setCsvData] = useState<{
     rows: CSVRow[];
     columns: string[];
@@ -56,7 +59,7 @@ export default function CSVEnrichmentPage() {
 
         if (!hasFirecrawl) {
           // Check localStorage for saved API key
-          const savedKey = localStorage.getItem("firecrawl_api_key");
+          const savedKey = safeLocalStorage.getItem("firecrawl_api_key");
           if (savedKey) {
             setFirecrawlApiKey(savedKey);
           }
@@ -64,7 +67,7 @@ export default function CSVEnrichmentPage() {
 
         if (!hasOpenAI) {
           // Check localStorage for saved API key
-          const savedKey = localStorage.getItem("openai_api_key");
+          const savedKey = safeLocalStorage.getItem("openai_api_key");
           if (savedKey) {
             setOpenaiApiKey(savedKey);
           }
@@ -85,8 +88,8 @@ export default function CSVEnrichmentPage() {
     const data = await response.json();
     const hasFirecrawl = data.environmentStatus.FIRECRAWL_API_KEY;
     const hasOpenAI = data.environmentStatus.OPENAI_API_KEY;
-    const savedFirecrawlKey = localStorage.getItem("firecrawl_api_key");
-    const savedOpenAIKey = localStorage.getItem("openai_api_key");
+    const savedFirecrawlKey = safeLocalStorage.getItem("firecrawl_api_key");
+    const savedOpenAIKey = safeLocalStorage.getItem("openai_api_key");
 
     if (
       (!hasFirecrawl && !savedFirecrawlKey) ||
@@ -116,7 +119,14 @@ export default function CSVEnrichmentPage() {
       setStep("upload");
     } else if (step === "enrichment") {
       setStep("setup");
+    } else if (step === "outreach") {
+      setStep("enrichment");
     }
+  };
+
+  const handleStartOutreach = (id: string) => {
+    setProjectId(id);
+    setStep("outreach");
   };
 
   const resetProcess = () => {
@@ -136,8 +146,8 @@ export default function CSVEnrichmentPage() {
     const data = await response.json();
     const hasEnvFirecrawl = data.environmentStatus.FIRECRAWL_API_KEY;
     const hasEnvOpenAI = data.environmentStatus.OPENAI_API_KEY;
-    const hasSavedFirecrawl = localStorage.getItem("firecrawl_api_key");
-    const hasSavedOpenAI = localStorage.getItem("openai_api_key");
+    const hasSavedFirecrawl = safeLocalStorage.getItem("firecrawl_api_key");
+    const hasSavedOpenAI = safeLocalStorage.getItem("openai_api_key");
 
     const needsFirecrawl = !hasEnvFirecrawl && !hasSavedFirecrawl;
     const needsOpenAI = !hasEnvOpenAI && !hasSavedOpenAI;
@@ -171,12 +181,12 @@ export default function CSVEnrichmentPage() {
         }
 
         // Save the API key to localStorage
-        localStorage.setItem("firecrawl_api_key", firecrawlApiKey);
+        safeLocalStorage.setItem("firecrawl_api_key", firecrawlApiKey);
       }
 
       // Save OpenAI API key if provided
       if (openaiApiKey) {
-        localStorage.setItem("openai_api_key", openaiApiKey);
+        safeLocalStorage.setItem("openai_api_key", openaiApiKey);
       }
 
       toast.success("API keys saved successfully!");
@@ -251,8 +261,15 @@ export default function CSVEnrichmentPage() {
           <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto mb-4" />
           <p className="text-sm text-muted-foreground">Initializing...</p>
         </div>
+      ) : step === "enrichment" && csvData ? (
+        <EnrichmentTable
+          rows={csvData.rows}
+          fields={selectedFields}
+          emailColumn={emailColumn}
+          onStartOutreach={handleStartOutreach}
+        />
       ) : (
-        <div className="bg-[#FBFAF9] p-4 sm:p-6 rounded-lg shadow-sm">
+        <div className="bg-card p-4 sm:p-6 rounded-lg shadow-sm">
           {step === "setup" && (
             <Button
               variant="code"
@@ -275,28 +292,32 @@ export default function CSVEnrichmentPage() {
             />
           )}
 
-          {step === "enrichment" && csvData && (
-            <>
-              <div className="mb-4">
-                <h2 className="text-xl font-semibold mb-1">
-                  Enrichment Results
-                </h2>
-                <p className="text-sm text-muted-foreground">
-                  Click on any row to view detailed information
-                </p>
-              </div>
-              <EnrichmentTable
-                rows={csvData.rows}
-                fields={selectedFields}
-                emailColumn={emailColumn}
-              />
-              <div className="mt-6 text-center">
-                <Button variant="orange" onClick={resetProcess}>
-                  Start New Enrichment
-                </Button>
-              </div>
-            </>
-          )}
+        </div>
+      )}
+
+      {step === "outreach" && projectId && csvData && (
+        <div className="px-4 sm:px-6">
+          <Button
+            variant="code"
+            size="sm"
+            onClick={handleBack}
+            className="mb-4 flex items-center gap-1.5"
+          >
+            <ArrowLeft size={16} />
+            Back to Results
+          </Button>
+          <div className="mb-4">
+            <h2 className="text-xl font-semibold mb-1">
+              Email Outreach
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Create templates, build sequences, and launch campaigns
+            </p>
+          </div>
+          <OutreachDashboard
+            projectId={projectId}
+            totalRows={csvData.rows.length}
+          />
         </div>
       )}
 

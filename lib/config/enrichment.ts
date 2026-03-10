@@ -15,4 +15,10 @@ export const ENRICHMENT_CONFIG = {
    * Helps prevent rate limiting
    */
   BATCH_DELAY_MS: 1000,
+
+  /**
+   * Waterfall enrichment settings
+   * Fields below this confidence threshold trigger a second pass
+   */
+  WATERFALL_CONFIDENCE_THRESHOLD: 0.6,
 } as const;
