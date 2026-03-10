@@ -7,14 +7,14 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const campaign = getCampaign(id);
+  const campaign = await getCampaign(id);
   if (!campaign) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
   const executor = new OutreachExecutor();
-  const stats = executor.computeStats(id);
-  updateCampaignStats(id, stats);
+  const stats = await executor.computeStats(id);
+  await updateCampaignStats(id, stats);
 
   return NextResponse.json(stats);
 }

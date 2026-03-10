@@ -2,13 +2,13 @@ import { NextResponse } from "next/server";
 import { getWarmingAccounts, createWarmingAccount } from "@/lib/db/outreach-queries";
 
 export async function GET() {
-  const accounts = getWarmingAccounts();
+  const accounts = await getWarmingAccounts();
   return NextResponse.json(accounts);
 }
 
 export async function POST(req: Request) {
   const body = await req.json();
-  const account = createWarmingAccount({
+  const account = await createWarmingAccount({
     email: body.email,
     name: body.name,
     backend: body.backend || "smtp",

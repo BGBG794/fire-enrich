@@ -10,7 +10,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const sequence = getSequence(id);
+  const sequence = await getSequence(id);
   if (!sequence) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
@@ -23,7 +23,7 @@ export async function PUT(
 ) {
   const { id } = await params;
   const body = await request.json();
-  updateSequence(id, body.name, body.steps);
+  await updateSequence(id, body.name, body.steps);
   return NextResponse.json({ success: true });
 }
 
@@ -32,6 +32,6 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  deleteSequence(id);
+  await deleteSequence(id);
   return NextResponse.json({ success: true });
 }

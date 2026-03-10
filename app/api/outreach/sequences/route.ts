@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "projectId required" }, { status: 400 });
   }
 
-  const sequences = getSequences(projectId);
+  const sequences = await getSequences(projectId);
   return NextResponse.json(sequences);
 }
 
@@ -25,6 +25,6 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const id = createSequence(projectId, name, steps);
+  const id = await createSequence(projectId, name, steps);
   return NextResponse.json({ id });
 }

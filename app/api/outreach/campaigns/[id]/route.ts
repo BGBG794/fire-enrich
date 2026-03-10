@@ -9,7 +9,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const campaign = getCampaign(id);
+  const campaign = await getCampaign(id);
   if (!campaign) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
@@ -21,6 +21,6 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  deleteCampaign(id);
+  await deleteCampaign(id);
   return NextResponse.json({ success: true });
 }

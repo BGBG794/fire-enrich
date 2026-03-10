@@ -10,7 +10,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const template = getEmailTemplate(id);
+  const template = await getEmailTemplate(id);
   if (!template) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
@@ -23,7 +23,7 @@ export async function PUT(
 ) {
   const { id } = await params;
   const body = await request.json();
-  updateEmailTemplate(id, body);
+  await updateEmailTemplate(id, body);
   return NextResponse.json({ success: true });
 }
 
@@ -32,6 +32,6 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  deleteEmailTemplate(id);
+  await deleteEmailTemplate(id);
   return NextResponse.json({ success: true });
 }

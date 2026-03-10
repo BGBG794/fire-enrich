@@ -6,7 +6,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const campaign = getCampaign(id);
+  const campaign = await getCampaign(id);
   if (!campaign) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
@@ -17,6 +17,6 @@ export async function POST(
     );
   }
 
-  updateCampaignStatus(id, "paused");
+  await updateCampaignStatus(id, "paused");
   return NextResponse.json({ success: true });
 }

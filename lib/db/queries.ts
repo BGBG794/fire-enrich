@@ -1,15 +1,16 @@
 import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
-import { db, schema } from "./index";
+import { db, schema, ensureTables } from "./index";
 import type { CSVRow, EnrichmentField, EnrichmentResult, PipelineConfig } from "../types";
 
 // ─── Projects ────────────────────────────────────────────────
 
-export function createProject(name: string, columns: string[], csvRows: CSVRow[]) {
+export async function createProject(name: string, columns: string[], csvRows: CSVRow[]) {
+  await ensureTables();
   const now = Date.now();
   const projectId = nanoid();
 
-  db.insert(schema.projects).values({
+  await db.insert(schema.projects).values({
     id: projectId,
     name,
     createdAt: now,
@@ -17,83 +18,79 @@ export function createProject(name: string, columns: string[], csvRows: CSVRow[]
     columns: JSON.stringify(columns),
     status: "draft",
     rowCount: csvRows.length,
-  }).run();
+  });
 
-  // Insert rows in a transaction for performance
-  const insertRow = db.insert(schema.rows);
   for (let i = 0; i < csvRows.length; i++) {
-    insertRow.values({
+    await db.insert(schema.rows).values({
       id: nanoid(),
       projectId,
       rowIndex: i,
       data: JSON.stringify(csvRows[i]),
-    }).run();
+    });
   }
 
   return projectId;
 }
 
-export function listProjects() {
-  return db
+export async function listProjects() {
+  await ensureTables();
+  const results = await db
     .select()
     .from(schema.projects)
-    .orderBy(schema.projects.createdAt)
-    .all()
-    .reverse() // Most recent first
+    .orderBy(schema.projects.createdAt);
+
+  return results
+    .reverse()
     .map((p) => ({
       ...p,
       columns: JSON.parse(p.columns) as string[],
     }));
 }
 
-export function getProject(id: string) {
-  const project = db
+export async function getProject(id: string) {
+  await ensureTables();
+  const projectResults = await db
     .select()
     .from(schema.projects)
-    .where(eq(schema.projects.id, id))
-    .get();
+    .where(eq(schema.projects.id, id));
 
+  const project = projectResults[0];
   if (!project) return null;
 
-  const projectRows = db
+  const projectRows = (await db
     .select()
     .from(schema.rows)
     .where(eq(schema.rows.projectId, id))
-    .orderBy(schema.rows.rowIndex)
-    .all()
+    .orderBy(schema.rows.rowIndex))
     .map((r) => ({
       ...r,
       data: JSON.parse(r.data) as CSVRow,
     }));
 
-  const fields = db
+  const fields = await db
     .select()
     .from(schema.enrichmentFields)
-    .where(eq(schema.enrichmentFields.projectId, id))
-    .all();
+    .where(eq(schema.enrichmentFields.projectId, id));
 
-  const results = db
+  const results = (await db
     .select()
     .from(schema.enrichmentResults)
-    .where(eq(schema.enrichmentResults.projectId, id))
-    .all()
+    .where(eq(schema.enrichmentResults.projectId, id)))
     .map((r) => ({
       ...r,
       value: r.value ? JSON.parse(r.value) : null,
       sourceContext: r.sourceContext ? JSON.parse(r.sourceContext) : undefined,
     }));
 
-  const aiCols = db
+  const aiCols = await db
     .select()
     .from(schema.aiColumns)
-    .where(eq(schema.aiColumns.projectId, id))
-    .all();
+    .where(eq(schema.aiColumns.projectId, id));
 
-  const aiResults = db
+  const aiResults = (await db
     .select()
     .from(schema.aiColumnResults)
-    .where(eq(schema.aiColumnResults.projectId, id))
-    .all()
+    .where(eq(schema.aiColumnResults.projectId, id)))
     .map((r) => ({
       ...r,
       value: r.value ? JSON.parse(r.value) : null,
@@ -110,28 +107,26 @@ export function getProject(id: string) {
   };
 }
 
-export function deleteProject(id: string) {
-  db.delete(schema.projects).where(eq(schema.projects.id, id)).run();
+export async function deleteProject(id: string) {
+  await ensureTables();
+  await db.delete(schema.projects).where(eq(schema.projects.id, id));
 }
 
 // ─── Fields ──────────────────────────────────────────────────
 
-export function saveFields(projectId: string, emailColumn: string, fields: EnrichmentField[]) {
+export async function saveFields(projectId: string, emailColumn: string, fields: EnrichmentField[]) {
+  await ensureTables();
   const now = Date.now();
 
-  // Update project
-  db.update(schema.projects)
+  await db.update(schema.projects)
     .set({ emailColumn, updatedAt: now, status: "enriching" })
-    .where(eq(schema.projects.id, projectId))
-    .run();
+    .where(eq(schema.projects.id, projectId));
 
-  // Delete existing fields and re-insert
-  db.delete(schema.enrichmentFields)
-    .where(eq(schema.enrichmentFields.projectId, projectId))
-    .run();
+  await db.delete(schema.enrichmentFields)
+    .where(eq(schema.enrichmentFields.projectId, projectId));
 
   for (const field of fields) {
-    db.insert(schema.enrichmentFields).values({
+    await db.insert(schema.enrichmentFields).values({
       id: nanoid(),
       projectId,
       name: field.name,
@@ -139,39 +134,35 @@ export function saveFields(projectId: string, emailColumn: string, fields: Enric
       description: field.description,
       type: field.type,
       required: field.required ? 1 : 0,
-    }).run();
+    });
   }
 }
 
 // ─── Enrichment Results ──────────────────────────────────────
 
-export function saveEnrichmentResult(
+export async function saveEnrichmentResult(
   projectId: string,
   rowIndex: number,
   enrichments: Record<string, EnrichmentResult>,
   status: string,
   error?: string,
 ) {
+  await ensureTables();
   const now = Date.now();
 
-  // Find the row by projectId + rowIndex
-  const row = db
+  const allRows = await db
     .select()
     .from(schema.rows)
-    .where(eq(schema.rows.projectId, projectId))
-    .all()
-    .find((r) => r.rowIndex === rowIndex);
+    .where(eq(schema.rows.projectId, projectId));
 
+  const row = allRows.find((r) => r.rowIndex === rowIndex);
   if (!row) return;
 
-  // Delete existing results for this row (in case of retry)
-  db.delete(schema.enrichmentResults)
-    .where(eq(schema.enrichmentResults.rowId, row.id))
-    .run();
+  await db.delete(schema.enrichmentResults)
+    .where(eq(schema.enrichmentResults.rowId, row.id));
 
   if (status === "skipped" || status === "error") {
-    // Insert a single result marking the status
-    db.insert(schema.enrichmentResults).values({
+    await db.insert(schema.enrichmentResults).values({
       id: nanoid(),
       projectId,
       rowId: row.id,
@@ -179,13 +170,12 @@ export function saveEnrichmentResult(
       status,
       error: error || null,
       createdAt: now,
-    }).run();
+    });
     return;
   }
 
-  // Insert each enrichment field result
   for (const [fieldName, result] of Object.entries(enrichments)) {
-    db.insert(schema.enrichmentResults).values({
+    await db.insert(schema.enrichmentResults).values({
       id: nanoid(),
       projectId,
       rowId: row.id,
@@ -196,30 +186,31 @@ export function saveEnrichmentResult(
       sourceContext: result.sourceContext ? JSON.stringify(result.sourceContext) : null,
       status: "completed",
       createdAt: now,
-    }).run();
+    });
   }
 }
 
-export function updateProjectStatus(projectId: string, status: string) {
-  db.update(schema.projects)
+export async function updateProjectStatus(projectId: string, status: string) {
+  await ensureTables();
+  await db.update(schema.projects)
     .set({ status, updatedAt: Date.now() })
-    .where(eq(schema.projects.id, projectId))
-    .run();
+    .where(eq(schema.projects.id, projectId));
 }
 
 // ─── AI Columns ─────────────────────────────────────────────
 
-export function createAIColumn(
+export async function createAIColumn(
   projectId: string,
   name: string,
   displayName: string,
   prompt: string,
   type: string = "string",
 ) {
+  await ensureTables();
   const id = nanoid();
   const now = Date.now();
 
-  db.insert(schema.aiColumns).values({
+  await db.insert(schema.aiColumns).values({
     id,
     projectId,
     name,
@@ -227,24 +218,25 @@ export function createAIColumn(
     prompt,
     type,
     createdAt: now,
-  }).run();
+  });
 
   return id;
 }
 
-export function getAIColumns(projectId: string) {
+export async function getAIColumns(projectId: string) {
+  await ensureTables();
   return db
     .select()
     .from(schema.aiColumns)
-    .where(eq(schema.aiColumns.projectId, projectId))
-    .all();
+    .where(eq(schema.aiColumns.projectId, projectId));
 }
 
-export function deleteAIColumn(columnId: string) {
-  db.delete(schema.aiColumns).where(eq(schema.aiColumns.id, columnId)).run();
+export async function deleteAIColumn(columnId: string) {
+  await ensureTables();
+  await db.delete(schema.aiColumns).where(eq(schema.aiColumns.id, columnId));
 }
 
-export function saveAIColumnResult(
+export async function saveAIColumnResult(
   projectId: string,
   columnId: string,
   rowId: string,
@@ -252,23 +244,21 @@ export function saveAIColumnResult(
   status: string,
   error?: string,
 ) {
+  await ensureTables();
   const now = Date.now();
 
-  // Upsert: delete existing result for this column+row, then insert
-  const existing = db
+  const existing = (await db
     .select()
     .from(schema.aiColumnResults)
-    .where(eq(schema.aiColumnResults.columnId, columnId))
-    .all()
+    .where(eq(schema.aiColumnResults.columnId, columnId)))
     .find((r) => r.rowId === rowId);
 
   if (existing) {
-    db.delete(schema.aiColumnResults)
-      .where(eq(schema.aiColumnResults.id, existing.id))
-      .run();
+    await db.delete(schema.aiColumnResults)
+      .where(eq(schema.aiColumnResults.id, existing.id));
   }
 
-  db.insert(schema.aiColumnResults).values({
+  await db.insert(schema.aiColumnResults).values({
     id: nanoid(),
     projectId,
     columnId,
@@ -277,15 +267,15 @@ export function saveAIColumnResult(
     status,
     error: error || null,
     createdAt: now,
-  }).run();
+  });
 }
 
-export function getAIColumnResults(projectId: string) {
-  return db
+export async function getAIColumnResults(projectId: string) {
+  await ensureTables();
+  return (await db
     .select()
     .from(schema.aiColumnResults)
-    .where(eq(schema.aiColumnResults.projectId, projectId))
-    .all()
+    .where(eq(schema.aiColumnResults.projectId, projectId)))
     .map((r) => ({
       ...r,
       value: r.value ? JSON.parse(r.value) : null,
@@ -294,36 +284,28 @@ export function getAIColumnResults(projectId: string) {
 
 // ─── Pipeline ────────────────────────────────────────────────
 
-export function savePipelineConfig(projectId: string, pipelineConfig: PipelineConfig) {
+export async function savePipelineConfig(projectId: string, pipelineConfig: PipelineConfig) {
+  await ensureTables();
   const now = Date.now();
-  db.update(schema.projects)
+  await db.update(schema.projects)
     .set({
       pipelineConfig: JSON.stringify(pipelineConfig),
       mode: "pipeline",
       updatedAt: now,
       status: "enriching",
     })
-    .where(eq(schema.projects.id, projectId))
-    .run();
+    .where(eq(schema.projects.id, projectId));
 }
 
 // ─── Row lookup helper ───────────────────────────────────────
 
-export function getRowIdByIndex(projectId: string, rowIndex: number): string | null {
-  const row = db
-    .select({ id: schema.rows.id })
-    .from(schema.rows)
-    .where(eq(schema.rows.projectId, projectId))
-    .all()
-    .find((r) => r.id); // we need to filter by rowIndex too
-
-  // More precise query
-  const rows = db
+export async function getRowIdByIndex(projectId: string, rowIndex: number): Promise<string | null> {
+  await ensureTables();
+  const allRows = await db
     .select()
     .from(schema.rows)
-    .where(eq(schema.rows.projectId, projectId))
-    .all();
+    .where(eq(schema.rows.projectId, projectId));
 
-  const match = rows.find((r) => r.rowIndex === rowIndex);
+  const match = allRows.find((r) => r.rowIndex === rowIndex);
   return match?.id ?? null;
 }

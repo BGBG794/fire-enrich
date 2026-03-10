@@ -1,19 +1,19 @@
-import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
+import { pgTable, text, integer, bigint, real } from "drizzle-orm/pg-core";
 
-export const projects = sqliteTable("projects", {
+export const projects = pgTable("projects", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
-  createdAt: integer("created_at").notNull(),
-  updatedAt: integer("updated_at").notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
   columns: text("columns").notNull(), // JSON string[]
   emailColumn: text("email_column"),
-  status: text("status").notNull().default("draft"), // draft | enriching | completed
+  status: text("status").notNull().default("draft"),
   rowCount: integer("row_count").notNull().default(0),
   pipelineConfig: text("pipeline_config"), // JSON PipelineConfig
-  mode: text("mode").default("standard"), // standard | pipeline
+  mode: text("mode").default("standard"),
 });
 
-export const rows = sqliteTable("rows", {
+export const rows = pgTable("rows", {
   id: text("id").primaryKey(),
   projectId: text("project_id")
     .notNull()
@@ -22,7 +22,7 @@ export const rows = sqliteTable("rows", {
   data: text("data").notNull(), // JSON CSVRow
 });
 
-export const enrichmentFields = sqliteTable("enrichment_fields", {
+export const enrichmentFields = pgTable("enrichment_fields", {
   id: text("id").primaryKey(),
   projectId: text("project_id")
     .notNull()
@@ -34,7 +34,7 @@ export const enrichmentFields = sqliteTable("enrichment_fields", {
   required: integer("required").notNull().default(0),
 });
 
-export const aiColumns = sqliteTable("ai_columns", {
+export const aiColumns = pgTable("ai_columns", {
   id: text("id").primaryKey(),
   projectId: text("project_id")
     .notNull()
@@ -42,11 +42,11 @@ export const aiColumns = sqliteTable("ai_columns", {
   name: text("name").notNull(),
   displayName: text("display_name").notNull(),
   prompt: text("prompt").notNull(),
-  type: text("type").notNull().default("string"), // string | number | boolean
-  createdAt: integer("created_at").notNull(),
+  type: text("type").notNull().default("string"),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
 });
 
-export const aiColumnResults = sqliteTable("ai_column_results", {
+export const aiColumnResults = pgTable("ai_column_results", {
   id: text("id").primaryKey(),
   projectId: text("project_id")
     .notNull()
@@ -57,15 +57,15 @@ export const aiColumnResults = sqliteTable("ai_column_results", {
   rowId: text("row_id")
     .notNull()
     .references(() => rows.id, { onDelete: "cascade" }),
-  value: text("value"), // JSON
-  status: text("status").notNull().default("pending"), // pending | completed | error
+  value: text("value"),
+  status: text("status").notNull().default("pending"),
   error: text("error"),
-  createdAt: integer("created_at").notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
 });
 
 // ─── Outreach Tables ────────────────────────────────────────
 
-export const emailTemplates = sqliteTable("email_templates", {
+export const emailTemplates = pgTable("email_templates", {
   id: text("id").primaryKey(),
   projectId: text("project_id")
     .notNull()
@@ -73,26 +73,26 @@ export const emailTemplates = sqliteTable("email_templates", {
   name: text("name").notNull(),
   subject: text("subject").notNull(),
   body: text("body").notNull(),
-  createdAt: integer("created_at").notNull(),
-  updatedAt: integer("updated_at").notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 });
 
-export const sequences = sqliteTable("sequences", {
+export const sequences = pgTable("sequences", {
   id: text("id").primaryKey(),
   projectId: text("project_id")
     .notNull()
     .references(() => projects.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
-  createdAt: integer("created_at").notNull(),
-  updatedAt: integer("updated_at").notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 });
 
-export const sequenceSteps = sqliteTable("sequence_steps", {
+export const sequenceSteps = pgTable("sequence_steps", {
   id: text("id").primaryKey(),
   sequenceId: text("sequence_id")
     .notNull()
     .references(() => sequences.id, { onDelete: "cascade" }),
-  order: integer("order").notNull(),
+  order: integer("step_order").notNull(),
   templateId: text("template_id")
     .notNull()
     .references(() => emailTemplates.id, { onDelete: "cascade" }),
@@ -102,7 +102,7 @@ export const sequenceSteps = sqliteTable("sequence_steps", {
   sendWindow: text("send_window"),
 });
 
-export const campaigns = sqliteTable("campaigns", {
+export const campaigns = pgTable("campaigns", {
   id: text("id").primaryKey(),
   projectId: text("project_id")
     .notNull()
@@ -120,14 +120,14 @@ export const campaigns = sqliteTable("campaigns", {
   billionmailTaskId: text("billionmail_task_id"),
   billionmailGroupId: integer("billionmail_group_id"),
   stats: text("stats"),
-  scheduledAt: integer("scheduled_at"),
-  startedAt: integer("started_at"),
-  completedAt: integer("completed_at"),
-  createdAt: integer("created_at").notNull(),
-  updatedAt: integer("updated_at").notNull(),
+  scheduledAt: bigint("scheduled_at", { mode: "number" }),
+  startedAt: bigint("started_at", { mode: "number" }),
+  completedAt: bigint("completed_at", { mode: "number" }),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 });
 
-export const emailSends = sqliteTable("email_sends", {
+export const emailSends = pgTable("email_sends", {
   id: text("id").primaryKey(),
   campaignId: text("campaign_id")
     .notNull()
@@ -143,38 +143,38 @@ export const emailSends = sqliteTable("email_sends", {
   status: text("status").notNull().default("pending"),
   resolvedSubject: text("resolved_subject").notNull(),
   resolvedBody: text("resolved_body").notNull(),
-  sentAt: integer("sent_at"),
-  openedAt: integer("opened_at"),
-  clickedAt: integer("clicked_at"),
-  repliedAt: integer("replied_at"),
-  bouncedAt: integer("bounced_at"),
+  sentAt: bigint("sent_at", { mode: "number" }),
+  openedAt: bigint("opened_at", { mode: "number" }),
+  clickedAt: bigint("clicked_at", { mode: "number" }),
+  repliedAt: bigint("replied_at", { mode: "number" }),
+  bouncedAt: bigint("bounced_at", { mode: "number" }),
   errorMessage: text("error_message"),
   billionmailMessageId: text("billionmail_message_id"),
-  createdAt: integer("created_at").notNull(),
-  updatedAt: integer("updated_at").notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 });
 
-export const emailEvents = sqliteTable("email_events", {
+export const emailEvents = pgTable("email_events", {
   id: text("id").primaryKey(),
   emailSendId: text("email_send_id")
     .notNull()
     .references(() => emailSends.id, { onDelete: "cascade" }),
   eventType: text("event_type").notNull(),
   metadata: text("metadata"),
-  createdAt: integer("created_at").notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
 });
 
-export const outreachSettings = sqliteTable("outreach_settings", {
+export const outreachSettings = pgTable("outreach_settings", {
   id: text("id").primaryKey(),
   defaultBackend: text("default_backend").notNull().default("smtp"),
   smtpConfig: text("smtp_config"),
   billionmailConfig: text("billionmail_config"),
   dailySendLimit: integer("daily_send_limit").notNull().default(200),
   defaultSendWindow: text("default_send_window"),
-  updatedAt: integer("updated_at").notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 });
 
-export const warmingAccounts = sqliteTable("warming_accounts", {
+export const warmingAccounts = pgTable("warming_accounts", {
   id: text("id").primaryKey(),
   email: text("email").notNull(),
   name: text("name").notNull(),
@@ -188,14 +188,14 @@ export const warmingAccounts = sqliteTable("warming_accounts", {
   totalEmailsSent: integer("total_emails_sent").notNull().default(0),
   totalBounced: integer("total_bounced").notNull().default(0),
   healthScore: integer("health_score").notNull().default(100),
-  startedAt: integer("started_at"),
-  pausedAt: integer("paused_at"),
-  lastSendAt: integer("last_send_at"),
-  createdAt: integer("created_at").notNull(),
-  updatedAt: integer("updated_at").notNull(),
+  startedAt: bigint("started_at", { mode: "number" }),
+  pausedAt: bigint("paused_at", { mode: "number" }),
+  lastSendAt: bigint("last_send_at", { mode: "number" }),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 });
 
-export const warmingLogs = sqliteTable("warming_logs", {
+export const warmingLogs = pgTable("warming_logs", {
   id: text("id").primaryKey(),
   accountId: text("account_id")
     .notNull()
@@ -204,10 +204,10 @@ export const warmingLogs = sqliteTable("warming_logs", {
   emailsSent: integer("emails_sent").notNull().default(0),
   bounced: integer("bounced").notNull().default(0),
   target: integer("target").notNull(),
-  createdAt: integer("created_at").notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
 });
 
-export const enrichmentResults = sqliteTable("enrichment_results", {
+export const enrichmentResults = pgTable("enrichment_results", {
   id: text("id").primaryKey(),
   projectId: text("project_id")
     .notNull()
@@ -216,13 +216,13 @@ export const enrichmentResults = sqliteTable("enrichment_results", {
     .notNull()
     .references(() => rows.id, { onDelete: "cascade" }),
   fieldName: text("field_name").notNull(),
-  value: text("value"), // JSON
+  value: text("value"),
   confidence: real("confidence").default(0),
   source: text("source"),
-  sourceContext: text("source_context"), // JSON {url, snippet}[]
+  sourceContext: text("source_context"),
   status: text("status").notNull().default("pending"),
   error: text("error"),
-  createdAt: integer("created_at").notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
   stepId: text("step_id"),
   stepName: text("step_name"),
 });

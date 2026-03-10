@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
   if (!projectId) {
     return NextResponse.json({ error: "projectId required" }, { status: 400 });
   }
-  const columns = getAIColumns(projectId);
+  const columns = await getAIColumns(projectId);
   return NextResponse.json({ columns });
 }
 
@@ -49,21 +49,19 @@ export async function POST(request: NextRequest) {
       .replace(/^_|_$/g, "");
 
     // Create the AI column in DB
-    const columnId = createAIColumn(projectId, name, displayName, prompt, type);
+    const columnId = await createAIColumn(projectId, name, displayName, prompt, type);
 
     // Load rows with their enrichment data
-    const projectRows = db
+    const projectRows = await db
       .select()
       .from(schema.rows)
       .where(eq(schema.rows.projectId, projectId))
-      .orderBy(schema.rows.rowIndex)
-      .all();
+      .orderBy(schema.rows.rowIndex);
 
-    const enrichmentResults = db
+    const enrichmentResults = await db
       .select()
       .from(schema.enrichmentResults)
-      .where(eq(schema.enrichmentResults.projectId, projectId))
-      .all();
+      .where(eq(schema.enrichmentResults.projectId, projectId));
 
     // Group enrichment results by rowId
     const resultsByRowId = new Map<string, Record<string, any>>();
@@ -147,7 +145,7 @@ ${type === "number" ? "Answer with a number only." : ""}`;
               }
 
               // Save to DB
-              saveAIColumnResult(
+              await saveAIColumnResult(
                 projectId,
                 columnId,
                 row.id,
@@ -171,7 +169,7 @@ ${type === "number" ? "Answer with a number only." : ""}`;
             } catch (err) {
               const errorMsg =
                 err instanceof Error ? err.message : "Unknown error";
-              saveAIColumnResult(
+              await saveAIColumnResult(
                 projectId,
                 columnId,
                 row.id,
@@ -263,6 +261,6 @@ export async function DELETE(request: NextRequest) {
       { status: 400 },
     );
   }
-  deleteAIColumn(columnId);
+  await deleteAIColumn(columnId);
   return NextResponse.json({ success: true });
 }

@@ -36,13 +36,13 @@ export class FollowUpScheduler {
     this.isRunning = true;
 
     try {
-      const campaigns = getRunningCampaigns();
+      const campaigns = await getRunningCampaigns();
       if (campaigns.length === 0) {
         this.isRunning = false;
         return;
       }
 
-      const settings = getOutreachSettings();
+      const settings = await getOutreachSettings();
       const dailyLimit = settings?.dailySendLimit ?? 200;
 
       // Build executor with configured backends
@@ -80,7 +80,7 @@ export class FollowUpScheduler {
     executor: OutreachExecutor,
     dailyLimit: number,
   ): Promise<void> {
-    const sequence = getSequence(campaign.sequenceId);
+    const sequence = await getSequence(campaign.sequenceId);
     if (!sequence) return;
 
     const sortedSteps = [...sequence.steps].sort((a, b) => a.order - b.order);
@@ -91,14 +91,14 @@ export class FollowUpScheduler {
       if (step.order === 0) continue; // Initial step already sent at launch
 
       // Check if this step has already been fully executed
-      const stepSends = getEmailSends(campaign.id, step.id);
+      const stepSends = await getEmailSends(campaign.id, step.id);
       if (stepSends.length > 0) continue; // Already executed
 
       // Find the previous step's sends to check timing
       const previousStep = sortedSteps.find((s) => s.order === step.order - 1);
       if (!previousStep) continue;
 
-      const previousSends = getEmailSends(campaign.id, previousStep.id);
+      const previousSends = await getEmailSends(campaign.id, previousStep.id);
       if (previousSends.length === 0) {
         allStepsComplete = false;
         continue; // Previous step hasn't been sent yet
@@ -135,19 +135,22 @@ export class FollowUpScheduler {
     }
 
     // Update stats
-    const stats = executor.computeStats(campaign.id);
-    updateCampaignStats(campaign.id, stats);
+    const stats = await executor.computeStats(campaign.id);
+    await updateCampaignStats(campaign.id, stats);
 
     // Check if all steps are complete
     if (allStepsComplete && sortedSteps.length > 1) {
       // Verify all steps have been executed
-      const allExecuted = sortedSteps.every((step) => {
-        const sends = getEmailSends(campaign.id, step.id);
-        return sends.length > 0;
-      });
+      const allExecutedChecks = await Promise.all(
+        sortedSteps.map(async (step) => {
+          const sends = await getEmailSends(campaign.id, step.id);
+          return sends.length > 0;
+        }),
+      );
+      const allExecuted = allExecutedChecks.every(Boolean);
 
       if (allExecuted) {
-        updateCampaignStatus(campaign.id, "completed", {
+        await updateCampaignStatus(campaign.id, "completed", {
           completedAt: Date.now(),
         });
         console.log(

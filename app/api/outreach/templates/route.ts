@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "projectId required" }, { status: 400 });
   }
 
-  const templates = getEmailTemplates(projectId);
+  const templates = await getEmailTemplates(projectId);
   return NextResponse.json(templates);
 }
 
@@ -25,6 +25,6 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const id = createEmailTemplate(projectId, name, subject, emailBody);
+  const id = await createEmailTemplate(projectId, name, subject, emailBody);
   return NextResponse.json({ id });
 }

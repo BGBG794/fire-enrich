@@ -57,7 +57,7 @@ export class OutreachExecutor {
     const step = sequence.steps.find((s) => s.order === 0);
     if (!step) throw new Error("Sequence has no initial step (order 0)");
 
-    const template = getEmailTemplate(step.templateId);
+    const template = await getEmailTemplate(step.templateId);
     if (!template) throw new Error(`Template ${step.templateId} not found`);
 
     let sent = 0;
@@ -67,7 +67,7 @@ export class OutreachExecutor {
       const recipient = recipients[i];
 
       // Check daily send limit
-      const todayCount = getTodaySendCount();
+      const todayCount = await getTodaySendCount();
       if (todayCount >= dailySendLimit) {
         onProgress?.(
           `Daily send limit reached (${dailySendLimit}). Pausing.`,
@@ -89,7 +89,7 @@ export class OutreachExecutor {
       );
 
       // Create email_send record
-      const sendId = createEmailSend({
+      const sendId = await createEmailSend({
         campaignId: campaign.id,
         sequenceStepId: step.id,
         rowId: recipient.rowId,
@@ -115,21 +115,21 @@ export class OutreachExecutor {
       });
 
       if (result.success) {
-        updateEmailSendStatus(sendId, "sent", {
+        await updateEmailSendStatus(sendId, "sent", {
           sentAt: Date.now(),
           billionmailMessageId: result.messageId,
         });
-        createEmailEvent(sendId, "sent");
+        await createEmailEvent(sendId, "sent");
         sent++;
         onProgress?.(
           `[${i + 1}/${recipients.length}] Sent to ${recipient.email}`,
           "success",
         );
       } else {
-        updateEmailSendStatus(sendId, "failed", {
+        await updateEmailSendStatus(sendId, "failed", {
           errorMessage: result.error,
         });
-        createEmailEvent(sendId, "failed", result.error);
+        await createEmailEvent(sendId, "failed", result.error);
         failed++;
         onProgress?.(
           `[${i + 1}/${recipients.length}] Failed: ${recipient.email} — ${result.error}`,
@@ -156,20 +156,20 @@ export class OutreachExecutor {
     dailySendLimit: number,
     onProgress?: ProgressCallback,
   ): Promise<{ sent: number; failed: number }> {
-    const template = getEmailTemplate(step.templateId);
+    const template = await getEmailTemplate(step.templateId);
     if (!template) throw new Error(`Template ${step.templateId} not found`);
 
     // Get sends from the previous step
     const previousStep = sequence.steps.find((s) => s.order === step.order - 1);
     if (!previousStep) throw new Error("No previous step found");
 
-    const previousSends = getEmailSends(campaign.id, previousStep.id);
+    const previousSends = await getEmailSends(campaign.id, previousStep.id);
 
     // Filter by condition
     const qualifyingSends = this.filterByCondition(step.condition, previousSends);
 
     // Check for already-sent emails in this step
-    const currentStepSends = getEmailSends(campaign.id, step.id);
+    const currentStepSends = await getEmailSends(campaign.id, step.id);
     const alreadySentEmails = new Set(currentStepSends.map((s) => s.recipientEmail));
 
     const toSend = qualifyingSends.filter(
@@ -187,7 +187,7 @@ export class OutreachExecutor {
     for (let i = 0; i < toSend.length; i++) {
       const prevSend = toSend[i];
 
-      const todayCount = getTodaySendCount();
+      const todayCount = await getTodaySendCount();
       if (todayCount >= dailySendLimit) {
         onProgress?.(`Daily send limit reached (${dailySendLimit}).`, "warning");
         break;
@@ -198,7 +198,7 @@ export class OutreachExecutor {
       const resolvedSubject = template.subject; // Follow-up templates are typically static or use cached data
       const resolvedBody = template.body;
 
-      const sendId = createEmailSend({
+      const sendId = await createEmailSend({
         campaignId: campaign.id,
         sequenceStepId: step.id,
         rowId: prevSend.rowId,
@@ -219,17 +219,17 @@ export class OutreachExecutor {
       });
 
       if (result.success) {
-        updateEmailSendStatus(sendId, "sent", {
+        await updateEmailSendStatus(sendId, "sent", {
           sentAt: Date.now(),
           billionmailMessageId: result.messageId,
         });
-        createEmailEvent(sendId, "sent");
+        await createEmailEvent(sendId, "sent");
         sent++;
       } else {
-        updateEmailSendStatus(sendId, "failed", {
+        await updateEmailSendStatus(sendId, "failed", {
           errorMessage: result.error,
         });
-        createEmailEvent(sendId, "failed", result.error);
+        await createEmailEvent(sendId, "failed", result.error);
         failed++;
       }
 
@@ -304,8 +304,8 @@ export class OutreachExecutor {
   /**
    * Compute campaign stats from email_sends data.
    */
-  computeStats(campaignId: string): CampaignStats {
-    const sends = getEmailSends(campaignId);
+  async computeStats(campaignId: string): Promise<CampaignStats> {
+    const sends = await getEmailSends(campaignId);
     const total = sends.length;
     const sent = sends.filter((s) => s.sentAt != null).length;
     const delivered = sends.filter(

@@ -84,7 +84,7 @@ class WarmingEngine {
     if (this.running) return;
     this.running = true;
     try {
-      const accounts = getActiveWarmingAccounts();
+      const accounts = await getActiveWarmingAccounts();
       if (accounts.length === 0) {
         this.running = false;
         return;
@@ -108,7 +108,7 @@ class WarmingEngine {
     // Day rollover: if lastSendAt was yesterday, save log and advance day
     if (account.lastSendAt && !isSameDay(account.lastSendAt, now)) {
       const quota = getDayQuota(account.currentDay, account.dailyTarget);
-      createWarmingLog({
+      await createWarmingLog({
         accountId: account.id,
         day: account.currentDay,
         emailsSent: account.emailsSentToday,
@@ -118,7 +118,7 @@ class WarmingEngine {
 
       const newDay = account.currentDay + 1;
       if (newDay >= account.totalDays) {
-        updateWarmingAccount(account.id, {
+        await updateWarmingAccount(account.id, {
           status: "completed",
           currentDay: newDay,
           emailsSentToday: 0,
@@ -127,7 +127,7 @@ class WarmingEngine {
         return;
       }
 
-      updateWarmingAccount(account.id, {
+      await updateWarmingAccount(account.id, {
         currentDay: newDay,
         emailsSentToday: 0,
       });
@@ -161,7 +161,7 @@ class WarmingEngine {
         });
         success = result.success;
       } else if (account.backend === "billionmail") {
-        const settings = getOutreachSettings();
+        const settings = await getOutreachSettings();
         if (settings?.billionmail) {
           const bm = new BillionMailService(settings.billionmail);
           const result = await bm.sendSingle({
@@ -176,13 +176,13 @@ class WarmingEngine {
       }
 
       if (success) {
-        updateWarmingAccount(account.id, {
+        await updateWarmingAccount(account.id, {
           emailsSentToday: account.emailsSentToday + 1,
           totalEmailsSent: account.totalEmailsSent + 1,
           lastSendAt: now,
         });
       } else {
-        updateWarmingAccount(account.id, {
+        await updateWarmingAccount(account.id, {
           totalBounced: account.totalBounced + 1,
           healthScore: Math.max(0, account.healthScore - 2),
           lastSendAt: now,
@@ -190,7 +190,7 @@ class WarmingEngine {
       }
     } catch (error) {
       console.error(`[WarmingEngine] Send error for ${account.email}:`, error);
-      updateWarmingAccount(account.id, {
+      await updateWarmingAccount(account.id, {
         totalBounced: account.totalBounced + 1,
         healthScore: Math.max(0, account.healthScore - 5),
       });

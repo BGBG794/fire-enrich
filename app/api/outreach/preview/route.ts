@@ -15,12 +15,12 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const project = getProject(projectId);
+  const project = await getProject(projectId);
   if (!project) {
     return NextResponse.json({ error: "Project not found" }, { status: 404 });
   }
 
-  const template = getEmailTemplate(templateId);
+  const template = await getEmailTemplate(templateId);
   if (!template) {
     return NextResponse.json({ error: "Template not found" }, { status: 404 });
   }

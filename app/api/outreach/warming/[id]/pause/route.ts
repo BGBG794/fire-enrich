@@ -3,10 +3,10 @@ import { getWarmingAccount, updateWarmingAccount } from "@/lib/db/outreach-queri
 
 export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const account = getWarmingAccount(id);
+  const account = await getWarmingAccount(id);
   if (!account) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  updateWarmingAccount(id, {
+  await updateWarmingAccount(id, {
     status: "paused",
     pausedAt: Date.now(),
   });

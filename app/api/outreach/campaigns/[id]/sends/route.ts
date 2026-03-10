@@ -7,6 +7,6 @@ export async function GET(
 ) {
   const { id } = await params;
   const stepId = request.nextUrl.searchParams.get("step") ?? undefined;
-  const sends = getEmailSends(id, stepId);
+  const sends = await getEmailSends(id, stepId);
   return NextResponse.json(sends);
 }

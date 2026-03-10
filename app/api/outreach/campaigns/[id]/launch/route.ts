@@ -20,7 +20,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const campaign = getCampaign(id);
+  const campaign = await getCampaign(id);
   if (!campaign) {
     return NextResponse.json({ error: "Campaign not found" }, { status: 404 });
   }
@@ -32,12 +32,12 @@ export async function POST(
     );
   }
 
-  const sequence = getSequence(campaign.sequenceId);
+  const sequence = await getSequence(campaign.sequenceId);
   if (!sequence) {
     return NextResponse.json({ error: "Sequence not found" }, { status: 404 });
   }
 
-  const project = getProject(campaign.projectId);
+  const project = await getProject(campaign.projectId);
   if (!project) {
     return NextResponse.json({ error: "Project not found" }, { status: 404 });
   }
@@ -120,7 +120,7 @@ export async function POST(
 
       try {
         // Build executor
-        const settings = getOutreachSettings();
+        const settings = await getOutreachSettings();
         const dailyLimit = settings?.dailySendLimit ?? 200;
 
         let billionmail: BillionMailService | undefined;
@@ -152,7 +152,7 @@ export async function POST(
         const executor = new OutreachExecutor(billionmail, smtp);
 
         // Update campaign status
-        updateCampaignStatus(id, "running", { startedAt: Date.now() });
+        await updateCampaignStatus(id, "running", { startedAt: Date.now() });
 
         send({
           type: "started",
@@ -172,12 +172,12 @@ export async function POST(
         );
 
         // Update stats
-        const stats = executor.computeStats(id);
-        updateCampaignStats(id, stats);
+        const stats = await executor.computeStats(id);
+        await updateCampaignStats(id, stats);
 
         // If only 1 step, campaign is complete; otherwise scheduler handles follow-ups
         if (sequence.steps.length <= 1) {
-          updateCampaignStatus(id, "completed", { completedAt: Date.now() });
+          await updateCampaignStatus(id, "completed", { completedAt: Date.now() });
         }
 
         send({
@@ -191,7 +191,7 @@ export async function POST(
           type: "error",
           error: error instanceof Error ? error.message : "Launch failed",
         });
-        updateCampaignStatus(id, "draft");
+        await updateCampaignStatus(id, "draft");
       } finally {
         controller.close();
       }

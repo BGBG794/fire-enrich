@@ -8,7 +8,7 @@ import {
 export async function GET(request: NextRequest) {
   const projectId = request.nextUrl.searchParams.get("projectId");
 
-  const campaigns = projectId ? getCampaigns(projectId) : getAllCampaigns();
+  const campaigns = projectId ? await getCampaigns(projectId) : await getAllCampaigns();
   return NextResponse.json(campaigns);
 }
 
@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const id = createCampaign({
+  const id = await createCampaign({
     projectId,
     name,
     sequenceId,

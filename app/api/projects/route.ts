@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createProject, listProjects } from "@/lib/db/queries";
 
 export async function GET() {
-  const projects = listProjects();
+  const projects = await listProjects();
   return NextResponse.json({ projects });
 }
 
@@ -15,7 +15,7 @@ export async function POST(request: Request) {
   }
 
   const projectName = name || `Import ${new Date().toLocaleDateString()}`;
-  const projectId = createProject(projectName, columns, rows);
+  const projectId = await createProject(projectName, columns, rows);
 
   return NextResponse.json({ projectId });
 }

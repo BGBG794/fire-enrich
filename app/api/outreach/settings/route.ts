@@ -7,7 +7,7 @@ import { BillionMailService } from "@/lib/services/billionmail";
 import { SMTPService } from "@/lib/services/smtp";
 
 export async function GET() {
-  const settings = getOutreachSettings();
+  const settings = await getOutreachSettings();
   return NextResponse.json(settings ?? {
     defaultBackend: "smtp",
     dailySendLimit: 200,
@@ -16,7 +16,7 @@ export async function GET() {
 
 export async function PUT(request: NextRequest) {
   const body = await request.json();
-  saveOutreachSettings(body);
+  await saveOutreachSettings(body);
   return NextResponse.json({ success: true });
 }
 

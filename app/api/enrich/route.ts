@@ -184,7 +184,7 @@ export async function POST(request: NextRequest) {
                 );
 
                 if (projectId) {
-                  try { saveEnrichmentResult(projectId, i, {}, 'skipped', skipReason); } catch (e) { console.error('[DB] Failed to save skip result:', e); }
+                  try { await saveEnrichmentResult(projectId, i, {}, 'skipped', skipReason); } catch (e) { console.error('[DB] Failed to save skip result:', e); }
                 }
                 return;
               }
@@ -287,7 +287,7 @@ export async function POST(request: NextRequest) {
 
               // Persist result to DB
               if (projectId) {
-                try { saveEnrichmentResult(projectId, i, result.enrichments, result.status, result.error); } catch (e) { console.error('[DB] Failed to save result:', e); }
+                try { await saveEnrichmentResult(projectId, i, result.enrichments, result.status, result.error); } catch (e) { console.error('[DB] Failed to save result:', e); }
               }
 
               // Send result
@@ -306,7 +306,7 @@ export async function POST(request: NextRequest) {
               };
 
               if (projectId) {
-                try { saveEnrichmentResult(projectId, i, {}, 'error', errorResult.error); } catch (e) { console.error('[DB] Failed to save error result:', e); }
+                try { await saveEnrichmentResult(projectId, i, {}, 'error', errorResult.error); } catch (e) { console.error('[DB] Failed to save error result:', e); }
               }
 
               controller.enqueue(
@@ -353,7 +353,7 @@ export async function POST(request: NextRequest) {
 
           // Update project status
           if (projectId) {
-            try { updateProjectStatus(projectId, 'completed'); } catch (e) { console.error('[DB] Failed to update project status:', e); }
+            try { await updateProjectStatus(projectId, 'completed'); } catch (e) { console.error('[DB] Failed to update project status:', e); }
           }
 
           // Send completion

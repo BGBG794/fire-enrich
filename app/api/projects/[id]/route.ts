@@ -7,7 +7,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const project = getProject(id);
+  const project = await getProject(id);
 
   if (!project) {
     return NextResponse.json({ error: "Project not found" }, { status: 404 });
@@ -24,15 +24,15 @@ export async function PUT(
   const body = await request.json();
 
   if (body.emailColumn && body.fields) {
-    saveFields(id, body.emailColumn, body.fields as EnrichmentField[]);
+    await saveFields(id, body.emailColumn, body.fields as EnrichmentField[]);
   }
 
   if (body.pipelineConfig) {
-    savePipelineConfig(id, body.pipelineConfig as PipelineConfig);
+    await savePipelineConfig(id, body.pipelineConfig as PipelineConfig);
   }
 
   if (body.status) {
-    updateProjectStatus(id, body.status);
+    await updateProjectStatus(id, body.status);
   }
 
   return NextResponse.json({ success: true });
@@ -43,6 +43,6 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  deleteProject(id);
+  await deleteProject(id);
   return NextResponse.json({ success: true });
 }

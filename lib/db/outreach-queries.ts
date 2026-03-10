@@ -1,6 +1,6 @@
-import { eq, and } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
-import { db, schema } from "./index";
+import { db, schema, ensureTables } from "./index";
 import type {
   EmailTemplate,
   Sequence,
@@ -18,70 +18,69 @@ import type {
 
 // ─── Email Templates ────────────────────────────────────────
 
-export function createEmailTemplate(
+export async function createEmailTemplate(
   projectId: string,
   name: string,
   subject: string,
   body: string,
-): string {
+): Promise<string> {
+  await ensureTables();
   const id = nanoid();
   const now = Date.now();
-  db.insert(schema.emailTemplates)
-    .values({ id, projectId, name, subject, body, createdAt: now, updatedAt: now })
-    .run();
+  await db.insert(schema.emailTemplates)
+    .values({ id, projectId, name, subject, body, createdAt: now, updatedAt: now });
   return id;
 }
 
-export function getEmailTemplates(projectId: string): EmailTemplate[] {
+export async function getEmailTemplates(projectId: string): Promise<EmailTemplate[]> {
+  await ensureTables();
   return db
     .select()
     .from(schema.emailTemplates)
-    .where(eq(schema.emailTemplates.projectId, projectId))
-    .all();
+    .where(eq(schema.emailTemplates.projectId, projectId));
 }
 
-export function getEmailTemplate(id: string): EmailTemplate | null {
-  return (
-    db
-      .select()
-      .from(schema.emailTemplates)
-      .where(eq(schema.emailTemplates.id, id))
-      .get() ?? null
-  );
+export async function getEmailTemplate(id: string): Promise<EmailTemplate | null> {
+  await ensureTables();
+  const results = await db
+    .select()
+    .from(schema.emailTemplates)
+    .where(eq(schema.emailTemplates.id, id));
+  return results[0] ?? null;
 }
 
-export function updateEmailTemplate(
+export async function updateEmailTemplate(
   id: string,
   updates: Partial<Pick<EmailTemplate, "name" | "subject" | "body">>,
-): void {
-  db.update(schema.emailTemplates)
+): Promise<void> {
+  await ensureTables();
+  await db.update(schema.emailTemplates)
     .set({ ...updates, updatedAt: Date.now() })
-    .where(eq(schema.emailTemplates.id, id))
-    .run();
+    .where(eq(schema.emailTemplates.id, id));
 }
 
-export function deleteEmailTemplate(id: string): void {
-  db.delete(schema.emailTemplates)
-    .where(eq(schema.emailTemplates.id, id))
-    .run();
+export async function deleteEmailTemplate(id: string): Promise<void> {
+  await ensureTables();
+  await db.delete(schema.emailTemplates)
+    .where(eq(schema.emailTemplates.id, id));
 }
 
 // ─── Sequences ──────────────────────────────────────────────
 
-export function createSequence(
+export async function createSequence(
   projectId: string,
   name: string,
   steps: Omit<SequenceStep, "id" | "sequenceId">[],
-): string {
+): Promise<string> {
+  await ensureTables();
   const id = nanoid();
   const now = Date.now();
 
-  db.insert(schema.sequences)
-    .values({ id, projectId, name, createdAt: now, updatedAt: now })
-    .run();
+  await db.insert(schema.sequences)
+    .values({ id, projectId, name, createdAt: now, updatedAt: now });
 
   for (const step of steps) {
-    db.insert(schema.sequenceSteps)
+    await db.insert(schema.sequenceSteps)
       .values({
         id: nanoid(),
         sequenceId: id,
@@ -91,26 +90,25 @@ export function createSequence(
         delayHours: step.delayHours,
         condition: step.condition,
         sendWindow: step.sendWindow ? JSON.stringify(step.sendWindow) : null,
-      })
-      .run();
+      });
   }
 
   return id;
 }
 
-export function getSequences(projectId: string): Sequence[] {
-  const seqs = db
+export async function getSequences(projectId: string): Promise<Sequence[]> {
+  await ensureTables();
+  const seqs = await db
     .select()
     .from(schema.sequences)
-    .where(eq(schema.sequences.projectId, projectId))
-    .all();
+    .where(eq(schema.sequences.projectId, projectId));
 
-  return seqs.map((seq) => {
-    const steps = db
+  const result: Sequence[] = [];
+  for (const seq of seqs) {
+    const steps = (await db
       .select()
       .from(schema.sequenceSteps)
-      .where(eq(schema.sequenceSteps.sequenceId, seq.id))
-      .all()
+      .where(eq(schema.sequenceSteps.sequenceId, seq.id)))
       .map((s) => ({
         ...s,
         condition: s.condition as FollowUpCondition,
@@ -118,24 +116,26 @@ export function getSequences(projectId: string): Sequence[] {
       }))
       .sort((a, b) => a.order - b.order);
 
-    return { ...seq, steps };
-  });
+    result.push({ ...seq, steps });
+  }
+
+  return result;
 }
 
-export function getSequence(id: string): Sequence | null {
-  const seq = db
+export async function getSequence(id: string): Promise<Sequence | null> {
+  await ensureTables();
+  const seqResults = await db
     .select()
     .from(schema.sequences)
-    .where(eq(schema.sequences.id, id))
-    .get();
+    .where(eq(schema.sequences.id, id));
 
+  const seq = seqResults[0];
   if (!seq) return null;
 
-  const steps = db
+  const steps = (await db
     .select()
     .from(schema.sequenceSteps)
-    .where(eq(schema.sequenceSteps.sequenceId, id))
-    .all()
+    .where(eq(schema.sequenceSteps.sequenceId, id)))
     .map((s) => ({
       ...s,
       condition: s.condition as FollowUpCondition,
@@ -146,25 +146,23 @@ export function getSequence(id: string): Sequence | null {
   return { ...seq, steps };
 }
 
-export function updateSequence(
+export async function updateSequence(
   id: string,
   name: string,
   steps: Omit<SequenceStep, "id" | "sequenceId">[],
-): void {
+): Promise<void> {
+  await ensureTables();
   const now = Date.now();
 
-  db.update(schema.sequences)
+  await db.update(schema.sequences)
     .set({ name, updatedAt: now })
-    .where(eq(schema.sequences.id, id))
-    .run();
+    .where(eq(schema.sequences.id, id));
 
-  // Replace all steps
-  db.delete(schema.sequenceSteps)
-    .where(eq(schema.sequenceSteps.sequenceId, id))
-    .run();
+  await db.delete(schema.sequenceSteps)
+    .where(eq(schema.sequenceSteps.sequenceId, id));
 
   for (const step of steps) {
-    db.insert(schema.sequenceSteps)
+    await db.insert(schema.sequenceSteps)
       .values({
         id: nanoid(),
         sequenceId: id,
@@ -174,24 +172,25 @@ export function updateSequence(
         delayHours: step.delayHours,
         condition: step.condition,
         sendWindow: step.sendWindow ? JSON.stringify(step.sendWindow) : null,
-      })
-      .run();
+      });
   }
 }
 
-export function deleteSequence(id: string): void {
-  db.delete(schema.sequences).where(eq(schema.sequences.id, id)).run();
+export async function deleteSequence(id: string): Promise<void> {
+  await ensureTables();
+  await db.delete(schema.sequences).where(eq(schema.sequences.id, id));
 }
 
 // ─── Campaigns ──────────────────────────────────────────────
 
-export function createCampaign(
+export async function createCampaign(
   data: Omit<Campaign, "id" | "stats" | "createdAt" | "updatedAt">,
-): string {
+): Promise<string> {
+  await ensureTables();
   const id = nanoid();
   const now = Date.now();
 
-  db.insert(schema.campaigns)
+  await db.insert(schema.campaigns)
     .values({
       id,
       projectId: data.projectId,
@@ -210,8 +209,7 @@ export function createCampaign(
       completedAt: data.completedAt ?? null,
       createdAt: now,
       updatedAt: now,
-    })
-    .run();
+    });
 
   return id;
 }
@@ -232,72 +230,74 @@ function parseCampaign(raw: typeof schema.campaigns.$inferSelect): Campaign {
   };
 }
 
-export function getCampaigns(projectId: string): Campaign[] {
-  return db
+export async function getCampaigns(projectId: string): Promise<Campaign[]> {
+  await ensureTables();
+  return (await db
     .select()
     .from(schema.campaigns)
-    .where(eq(schema.campaigns.projectId, projectId))
-    .all()
+    .where(eq(schema.campaigns.projectId, projectId)))
     .map(parseCampaign);
 }
 
-export function getAllCampaigns(): Campaign[] {
-  return db
+export async function getAllCampaigns(): Promise<Campaign[]> {
+  await ensureTables();
+  return (await db
     .select()
-    .from(schema.campaigns)
-    .all()
+    .from(schema.campaigns))
     .map(parseCampaign);
 }
 
-export function getCampaign(id: string): Campaign | null {
-  const raw = db
+export async function getCampaign(id: string): Promise<Campaign | null> {
+  await ensureTables();
+  const results = await db
     .select()
     .from(schema.campaigns)
-    .where(eq(schema.campaigns.id, id))
-    .get();
-  return raw ? parseCampaign(raw) : null;
+    .where(eq(schema.campaigns.id, id));
+  return results[0] ? parseCampaign(results[0]) : null;
 }
 
-export function updateCampaignStatus(
+export async function updateCampaignStatus(
   id: string,
   status: Campaign["status"],
   extra?: Partial<Pick<Campaign, "startedAt" | "completedAt">>,
-): void {
-  db.update(schema.campaigns)
+): Promise<void> {
+  await ensureTables();
+  await db.update(schema.campaigns)
     .set({ status, ...extra, updatedAt: Date.now() })
-    .where(eq(schema.campaigns.id, id))
-    .run();
+    .where(eq(schema.campaigns.id, id));
 }
 
-export function updateCampaignStats(id: string, stats: CampaignStats): void {
-  db.update(schema.campaigns)
+export async function updateCampaignStats(id: string, stats: CampaignStats): Promise<void> {
+  await ensureTables();
+  await db.update(schema.campaigns)
     .set({ stats: JSON.stringify(stats), updatedAt: Date.now() })
-    .where(eq(schema.campaigns.id, id))
-    .run();
+    .where(eq(schema.campaigns.id, id));
 }
 
-export function getRunningCampaigns(): Campaign[] {
-  return db
+export async function getRunningCampaigns(): Promise<Campaign[]> {
+  await ensureTables();
+  return (await db
     .select()
     .from(schema.campaigns)
-    .where(eq(schema.campaigns.status, "running"))
-    .all()
+    .where(eq(schema.campaigns.status, "running")))
     .map(parseCampaign);
 }
 
-export function deleteCampaign(id: string): void {
-  db.delete(schema.campaigns).where(eq(schema.campaigns.id, id)).run();
+export async function deleteCampaign(id: string): Promise<void> {
+  await ensureTables();
+  await db.delete(schema.campaigns).where(eq(schema.campaigns.id, id));
 }
 
 // ─── Email Sends ────────────────────────────────────────────
 
-export function createEmailSend(
+export async function createEmailSend(
   data: Omit<EmailSend, "id" | "createdAt" | "updatedAt">,
-): string {
+): Promise<string> {
+  await ensureTables();
   const id = nanoid();
   const now = Date.now();
 
-  db.insert(schema.emailSends)
+  await db.insert(schema.emailSends)
     .values({
       id,
       campaignId: data.campaignId,
@@ -317,18 +317,17 @@ export function createEmailSend(
       billionmailMessageId: data.billionmailMessageId ?? null,
       createdAt: now,
       updatedAt: now,
-    })
-    .run();
+    });
 
   return id;
 }
 
-export function getEmailSends(campaignId: string, stepId?: string): EmailSend[] {
-  const allSends = db
+export async function getEmailSends(campaignId: string, stepId?: string): Promise<EmailSend[]> {
+  await ensureTables();
+  const allSends = await db
     .select()
     .from(schema.emailSends)
-    .where(eq(schema.emailSends.campaignId, campaignId))
-    .all();
+    .where(eq(schema.emailSends.campaignId, campaignId));
 
   const filtered = stepId
     ? allSends.filter((s) => s.sequenceStepId === stepId)
@@ -348,65 +347,67 @@ export function getEmailSends(campaignId: string, stepId?: string): EmailSend[] 
   }));
 }
 
-export function updateEmailSendStatus(
+export async function updateEmailSendStatus(
   id: string,
   status: EmailSendStatus,
   metadata?: Partial<
     Pick<EmailSend, "sentAt" | "openedAt" | "clickedAt" | "repliedAt" | "bouncedAt" | "errorMessage" | "billionmailMessageId">
   >,
-): void {
-  db.update(schema.emailSends)
+): Promise<void> {
+  await ensureTables();
+  await db.update(schema.emailSends)
     .set({ status, ...metadata, updatedAt: Date.now() })
-    .where(eq(schema.emailSends.id, id))
-    .run();
+    .where(eq(schema.emailSends.id, id));
 }
 
-export function getTodaySendCount(): number {
+export async function getTodaySendCount(): Promise<number> {
+  await ensureTables();
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
 
-  return db
+  const allSends = await db
     .select()
-    .from(schema.emailSends)
-    .all()
-    .filter((s) => s.sentAt && s.sentAt >= startOfDay.getTime()).length;
+    .from(schema.emailSends);
+
+  return allSends.filter((s) => s.sentAt && s.sentAt >= startOfDay.getTime()).length;
 }
 
 // ─── Email Events ───────────────────────────────────────────
 
-export function createEmailEvent(
+export async function createEmailEvent(
   emailSendId: string,
   eventType: string,
   metadata?: string,
-): void {
-  db.insert(schema.emailEvents)
+): Promise<void> {
+  await ensureTables();
+  await db.insert(schema.emailEvents)
     .values({
       id: nanoid(),
       emailSendId,
       eventType,
       metadata: metadata ?? null,
       createdAt: Date.now(),
-    })
-    .run();
+    });
 }
 
-export function getEmailEvents(emailSendId: string) {
+export async function getEmailEvents(emailSendId: string) {
+  await ensureTables();
   return db
     .select()
     .from(schema.emailEvents)
-    .where(eq(schema.emailEvents.emailSendId, emailSendId))
-    .all();
+    .where(eq(schema.emailEvents.emailSendId, emailSendId));
 }
 
 // ─── Outreach Settings ──────────────────────────────────────
 
-export function getOutreachSettings(): OutreachSettings | null {
-  const raw = db
+export async function getOutreachSettings(): Promise<OutreachSettings | null> {
+  await ensureTables();
+  const results = await db
     .select()
     .from(schema.outreachSettings)
-    .where(eq(schema.outreachSettings.id, "default"))
-    .get();
+    .where(eq(schema.outreachSettings.id, "default"));
 
+  const raw = results[0];
   if (!raw) return null;
 
   return {
@@ -422,15 +423,14 @@ export function getOutreachSettings(): OutreachSettings | null {
   };
 }
 
-export function saveOutreachSettings(settings: OutreachSettings): void {
+export async function saveOutreachSettings(settings: OutreachSettings): Promise<void> {
+  await ensureTables();
   const now = Date.now();
 
-  // Upsert
-  const existing = db
+  const existing = await db
     .select()
     .from(schema.outreachSettings)
-    .where(eq(schema.outreachSettings.id, "default"))
-    .get();
+    .where(eq(schema.outreachSettings.id, "default"));
 
   const values = {
     id: "default",
@@ -446,13 +446,12 @@ export function saveOutreachSettings(settings: OutreachSettings): void {
     updatedAt: now,
   };
 
-  if (existing) {
-    db.update(schema.outreachSettings)
+  if (existing[0]) {
+    await db.update(schema.outreachSettings)
       .set(values)
-      .where(eq(schema.outreachSettings.id, "default"))
-      .run();
+      .where(eq(schema.outreachSettings.id, "default"));
   } else {
-    db.insert(schema.outreachSettings).values(values).run();
+    await db.insert(schema.outreachSettings).values(values);
   }
 }
 
@@ -481,10 +480,11 @@ function parseWarmingAccount(raw: typeof schema.warmingAccounts.$inferSelect): W
   };
 }
 
-export function createWarmingAccount(account: Omit<WarmingAccount, "id" | "createdAt" | "updatedAt" | "currentDay" | "emailsSentToday" | "totalEmailsSent" | "totalBounced" | "healthScore">): WarmingAccount {
+export async function createWarmingAccount(account: Omit<WarmingAccount, "id" | "createdAt" | "updatedAt" | "currentDay" | "emailsSentToday" | "totalEmailsSent" | "totalBounced" | "healthScore">): Promise<WarmingAccount> {
+  await ensureTables();
   const now = Date.now();
   const id = nanoid();
-  db.insert(schema.warmingAccounts).values({
+  await db.insert(schema.warmingAccounts).values({
     id,
     email: account.email,
     name: account.name,
@@ -503,28 +503,31 @@ export function createWarmingAccount(account: Omit<WarmingAccount, "id" | "creat
     lastSendAt: null,
     createdAt: now,
     updatedAt: now,
-  }).run();
+  });
 
-  return getWarmingAccount(id)!;
+  return (await getWarmingAccount(id))!;
 }
 
-export function getWarmingAccounts(): WarmingAccount[] {
-  return db.select().from(schema.warmingAccounts).all().map(parseWarmingAccount);
+export async function getWarmingAccounts(): Promise<WarmingAccount[]> {
+  await ensureTables();
+  return (await db.select().from(schema.warmingAccounts)).map(parseWarmingAccount);
 }
 
-export function getWarmingAccount(id: string): WarmingAccount | null {
-  const raw = db.select().from(schema.warmingAccounts).where(eq(schema.warmingAccounts.id, id)).get();
-  return raw ? parseWarmingAccount(raw) : null;
+export async function getWarmingAccount(id: string): Promise<WarmingAccount | null> {
+  await ensureTables();
+  const results = await db.select().from(schema.warmingAccounts).where(eq(schema.warmingAccounts.id, id));
+  return results[0] ? parseWarmingAccount(results[0]) : null;
 }
 
-export function getActiveWarmingAccounts(): WarmingAccount[] {
-  return db.select().from(schema.warmingAccounts)
-    .where(eq(schema.warmingAccounts.status, "warming"))
-    .all()
+export async function getActiveWarmingAccounts(): Promise<WarmingAccount[]> {
+  await ensureTables();
+  return (await db.select().from(schema.warmingAccounts)
+    .where(eq(schema.warmingAccounts.status, "warming")))
     .map(parseWarmingAccount);
 }
 
-export function updateWarmingAccount(id: string, updates: Partial<Record<string, unknown>>): void {
+export async function updateWarmingAccount(id: string, updates: Partial<Record<string, unknown>>): Promise<void> {
+  await ensureTables();
   const setValues: Record<string, unknown> = { updatedAt: Date.now() };
   if (updates.email !== undefined) setValues.email = updates.email;
   if (updates.name !== undefined) setValues.name = updates.name;
@@ -542,17 +545,19 @@ export function updateWarmingAccount(id: string, updates: Partial<Record<string,
   if (updates.pausedAt !== undefined) setValues.pausedAt = updates.pausedAt;
   if (updates.lastSendAt !== undefined) setValues.lastSendAt = updates.lastSendAt;
 
-  db.update(schema.warmingAccounts).set(setValues).where(eq(schema.warmingAccounts.id, id)).run();
+  await db.update(schema.warmingAccounts).set(setValues).where(eq(schema.warmingAccounts.id, id));
 }
 
-export function deleteWarmingAccount(id: string): void {
-  db.delete(schema.warmingAccounts).where(eq(schema.warmingAccounts.id, id)).run();
+export async function deleteWarmingAccount(id: string): Promise<void> {
+  await ensureTables();
+  await db.delete(schema.warmingAccounts).where(eq(schema.warmingAccounts.id, id));
 }
 
 // ─── Warming Logs ───────────────────────────────────────────
 
-export function createWarmingLog(log: Omit<WarmingLog, "id" | "createdAt">): void {
-  db.insert(schema.warmingLogs).values({
+export async function createWarmingLog(log: Omit<WarmingLog, "id" | "createdAt">): Promise<void> {
+  await ensureTables();
+  await db.insert(schema.warmingLogs).values({
     id: nanoid(),
     accountId: log.accountId,
     day: log.day,
@@ -560,13 +565,13 @@ export function createWarmingLog(log: Omit<WarmingLog, "id" | "createdAt">): voi
     bounced: log.bounced,
     target: log.target,
     createdAt: Date.now(),
-  }).run();
+  });
 }
 
-export function getWarmingLogs(accountId: string): WarmingLog[] {
-  return db.select().from(schema.warmingLogs)
-    .where(eq(schema.warmingLogs.accountId, accountId))
-    .all()
+export async function getWarmingLogs(accountId: string): Promise<WarmingLog[]> {
+  await ensureTables();
+  return (await db.select().from(schema.warmingLogs)
+    .where(eq(schema.warmingLogs.accountId, accountId)))
     .map((raw) => ({
       id: raw.id,
       accountId: raw.accountId,
