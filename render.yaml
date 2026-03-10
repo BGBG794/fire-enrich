@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: fire-enrich
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: SERPER_API_KEY
+        sync: false
+      - key: FIRECRAWL_API_KEY
+        sync: false
+      - key: FIRE_ENRICH_UNLIMITED
+        value: "true"
+      - key: NODE_ENV
+        value: production
