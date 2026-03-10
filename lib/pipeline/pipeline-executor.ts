@@ -1,6 +1,7 @@
 import { OpenAIService } from '../services/openai';
 import { AnyleadsService } from '../services/anyleads';
 import { JinaService } from '../services/jina';
+import { KasprService } from '../services/kaspr';
 import type {
   CSVRow,
   PipelineConfig,
@@ -25,18 +26,23 @@ export class PipelineExecutor {
   private openai: OpenAIService;
   private anyleads?: AnyleadsService;
   private jina: JinaService;
+  private kaspr?: KasprService;
 
   constructor(
     searchService: SearchService,
     openaiApiKey: string,
     anyleadsApiKey?: string,
     jinaApiKey?: string,
+    kasprApiKey?: string,
   ) {
     this.searchService = searchService;
     this.openai = new OpenAIService(openaiApiKey);
     this.jina = new JinaService(jinaApiKey);
     if (anyleadsApiKey) {
       this.anyleads = new AnyleadsService(anyleadsApiKey);
+    }
+    if (kasprApiKey) {
+      this.kaspr = new KasprService(kasprApiKey);
     }
   }
 
@@ -115,6 +121,8 @@ export class PipelineExecutor {
         return this.executeAIAnalysis(row, step, accumulatedContext, pipeline, onProgress);
       case 'contact_search':
         return this.executeContactSearch(row, step, accumulatedContext, pipeline, onProgress);
+      case 'kaspr_enrich':
+        return this.executeKasprEnrich(row, step, accumulatedContext, pipeline, onProgress);
       default:
         throw new Error(`Unknown step type: ${step.type}`);
     }
@@ -498,5 +506,133 @@ export class PipelineExecutor {
       fields,
       status: 'completed',
     };
+  }
+
+  private async executeKasprEnrich(
+    row: CSVRow,
+    step: PipelineStep,
+    accumulatedContext: Record<string, Record<string, unknown>>,
+    pipeline: PipelineConfig,
+    onProgress?: ProgressCallback,
+  ): Promise<StepResult> {
+    if (!this.kaspr) {
+      onProgress?.('KASPR API key not configured, skipping', 'warning');
+      return { stepId: step.id, stepName: step.name, fields: {}, status: 'completed' };
+    }
+
+    const identifier = row[pipeline.identifierColumn] || '';
+    const fields: Record<string, EnrichmentResult> = {};
+
+    // Step 1: Convert company name → domain
+    onProgress?.(`KASPR: Converting "${identifier}" to domain...`, 'info');
+    let domain = await this.kaspr.convertCompanyName(identifier);
+
+    // If not found, check accumulated context for a site_web or domain
+    if (!domain) {
+      for (const stepData of Object.values(accumulatedContext)) {
+        if (stepData.site_web) {
+          domain = String(stepData.site_web).replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+          break;
+        }
+        if (stepData.domain) {
+          domain = String(stepData.domain);
+          break;
+        }
+      }
+    }
+
+    if (!domain) {
+      onProgress?.(`KASPR: Domain not found for "${identifier}"`, 'warning');
+      return { stepId: step.id, stepName: step.name, fields, status: 'completed' };
+    }
+
+    onProgress?.(`KASPR: Domain found: ${domain}`, 'success');
+    fields.domain = { field: 'domain', value: domain, confidence: 0.95 };
+    fields.site_web = { field: 'site_web', value: `https://${domain}`, confidence: 0.95 };
+
+    // Step 2: Extract emails/phones/social from website
+    onProgress?.(`KASPR: Extracting contact info from ${domain}...`, 'info');
+    const siteData = await this.kaspr.extractFromUrl(domain);
+    if (siteData) {
+      if (siteData.company_email) {
+        const emails = siteData.company_email.split(',').map(e => e.trim()).filter(Boolean);
+        const generic = emails.find(e => /^(contact|info|agence|accueil|hello|bonjour)@/i.test(e));
+        const email = generic || emails[0];
+        if (email) {
+          fields.email_generique = { field: 'email_generique', value: email, confidence: 0.9, source: domain };
+          onProgress?.(`KASPR: Email: ${email}`, 'success');
+        }
+      }
+      if (siteData.phones) {
+        const phones = siteData.phones.split(',').map(p => p.trim()).filter(Boolean);
+        if (phones[0]) {
+          fields.telephone = { field: 'telephone', value: phones[0], confidence: 0.9, source: domain };
+          onProgress?.(`KASPR: Tel: ${phones[0]}`, 'success');
+        }
+      }
+      if (siteData.linkedin_url) {
+        fields.linkedin_url = { field: 'linkedin_url', value: siteData.linkedin_url, confidence: 0.95, source: domain };
+      }
+      if (siteData.facebook_url) {
+        fields.facebook_url = { field: 'facebook_url', value: siteData.facebook_url, confidence: 0.95, source: domain };
+      }
+      if (siteData.instagram_url) {
+        fields.instagram_url = { field: 'instagram_url', value: siteData.instagram_url, confidence: 0.95, source: domain };
+      }
+    }
+
+    // Step 3: Enrich company → find dirigeant among employees
+    onProgress?.(`KASPR: Finding employees at ${domain}...`, 'info');
+    const employees = await this.kaspr.enrichCompany(domain);
+
+    if (employees.length > 0) {
+      const dirigeantKeywords = /\b(ceo|president|président|gérant|gerant|directeur|director|founder|fondateur|owner|propriétaire|managing|general manager|dg|pdg|chief executive)\b/i;
+      const dirigeant = employees.find(e =>
+        dirigeantKeywords.test(e.job_title || '') || dirigeantKeywords.test(e.headline || '')
+      ) || employees[0];
+
+      const fullName = `${dirigeant.first_name} ${dirigeant.last_name}`.trim();
+      if (fullName) {
+        fields.dirigeant_nom = { field: 'dirigeant_nom', value: fullName, confidence: 0.9, source: domain };
+        onProgress?.(`KASPR: Dirigeant: ${fullName}`, 'success');
+      }
+      if (dirigeant.job_title) {
+        fields.dirigeant_poste = { field: 'dirigeant_poste', value: dirigeant.job_title, confidence: 0.9, source: domain };
+      }
+      const email = dirigeant.business_email || dirigeant.personal_email;
+      if (email) {
+        fields.dirigeant_email = { field: 'dirigeant_email', value: email, confidence: 0.85, source: domain };
+        onProgress?.(`KASPR: Email dirigeant: ${email}`, 'success');
+      }
+      if (dirigeant.social_url) {
+        fields.dirigeant_linkedin = { field: 'dirigeant_linkedin', value: dirigeant.social_url, confidence: 0.9, source: domain };
+      }
+      if (dirigeant.phone) {
+        fields.dirigeant_telephone = { field: 'dirigeant_telephone', value: dirigeant.phone, confidence: 0.85, source: domain };
+      }
+
+      onProgress?.(`KASPR: ${employees.length} employés trouvés`, 'info');
+    } else {
+      onProgress?.(`KASPR: Aucun employé trouvé`, 'warning');
+
+      // Fallback: try find-email if we have a name from previous steps
+      for (const stepData of Object.values(accumulatedContext)) {
+        if (stepData.dirigeant_nom && domain) {
+          const nameParts = String(stepData.dirigeant_nom).split(' ');
+          if (nameParts.length >= 2) {
+            const firstName = nameParts[0];
+            const lastName = nameParts.slice(1).join(' ');
+            onProgress?.(`KASPR: Trying email lookup for ${firstName} ${lastName}@${domain}...`, 'info');
+            const email = await this.kaspr.findEmail(firstName, lastName, domain);
+            if (email) {
+              fields.dirigeant_email = { field: 'dirigeant_email', value: email, confidence: 0.7, source: 'kaspr-find' };
+              onProgress?.(`KASPR: Email found: ${email}`, 'success');
+            }
+          }
+        }
+      }
+    }
+
+    return { stepId: step.id, stepName: step.name, fields, status: 'completed' };
   }
 }

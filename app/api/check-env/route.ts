@@ -6,6 +6,7 @@ export async function GET() {
     OPENAI_API_KEY: !!process.env.OPENAI_API_KEY,
     ANTHROPIC_API_KEY: !!process.env.ANTHROPIC_API_KEY,
     SERPER_API_KEY: !!process.env.SERPER_API_KEY,
+    KASPR_API_KEY: !!process.env.KASPR_API_KEY,
     FIRESTARTER_DISABLE_CREATION_DASHBOARD: process.env.FIRESTARTER_DISABLE_CREATION_DASHBOARD === 'true',
   };
 

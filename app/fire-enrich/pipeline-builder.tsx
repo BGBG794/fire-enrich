@@ -9,6 +9,7 @@ import {
   Globe,
   Brain,
   Users,
+  Zap,
   ChevronDown,
   ChevronUp,
   X,
@@ -46,6 +47,12 @@ const STEP_TYPE_INFO: Record<
     description: "Find LinkedIn profiles and emails",
     icon: Users,
     color: "text-green-600 bg-green-50 border-green-200",
+  },
+  kaspr_enrich: {
+    label: "KASPR Enrich",
+    description: "Find domain, emails, phone, employees & dirigeant via KASPR",
+    icon: Zap,
+    color: "text-orange-600 bg-orange-50 border-orange-200",
   },
 };
 
@@ -246,6 +253,7 @@ export function PipelineBuilder({
       (s) =>
         s.name.trim() &&
         (s.type === "contact_search" ||
+          s.type === "kaspr_enrich" ||
           (s.prompt.trim() &&
             s.outputFields.some((f) => f.displayName.trim())))
     );
@@ -481,7 +489,7 @@ export function PipelineBuilder({
                     </div>
 
                     {/* Prompt (not for contact_search) */}
-                    {step.type !== "contact_search" && (
+                    {step.type !== "contact_search" && step.type !== "kaspr_enrich" && (
                       <div>
                         <label className="block text-xs font-medium text-gray-600 mb-1">
                           Prompt
@@ -503,7 +511,7 @@ export function PipelineBuilder({
                     )}
 
                     {/* Output Fields (not for contact_search) */}
-                    {step.type !== "contact_search" && (
+                    {step.type !== "contact_search" && step.type !== "kaspr_enrich" && (
                       <div>
                         <label className="block text-xs font-medium text-gray-600 mb-2">
                           Output Fields

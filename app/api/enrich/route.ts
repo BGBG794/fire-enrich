@@ -79,6 +79,7 @@ export async function POST(request: NextRequest) {
     const serperApiKey = process.env.SERPER_API_KEY || request.headers.get('X-Serper-API-Key') || undefined;
     const jinaApiKey = process.env.JINA_API_KEY || request.headers.get('X-Jina-API-Key') || undefined;
     const anyleadsApiKey = process.env.ANYLEADS_API_KEY || request.headers.get('X-Anyleads-API-Key') || undefined;
+    const kasprApiKey = process.env.KASPR_API_KEY || request.headers.get('X-Kaspr-API-Key') || undefined;
 
     // For pipeline mode, either Serper or Firecrawl is needed for search
     const hasSearchProvider = serperApiKey || firecrawlApiKey;
@@ -110,7 +111,7 @@ export async function POST(request: NextRequest) {
         searchService = new FirecrawlService(firecrawlApiKey!);
       }
       console.log(`[STRATEGY] Using PipelineExecutor - ${pipelineConfig.steps.length} steps`);
-      pipelineExecutor = new PipelineExecutor(searchService, openaiApiKey, anyleadsApiKey, jinaApiKey);
+      pipelineExecutor = new PipelineExecutor(searchService, openaiApiKey, anyleadsApiKey, jinaApiKey, kasprApiKey);
     } else {
       const strategyName = 'AgentEnrichmentStrategy';
       console.log(`[STRATEGY] Using ${strategyName} - Advanced multi-agent architecture`);

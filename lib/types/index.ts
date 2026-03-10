@@ -103,7 +103,7 @@ export interface EnrichmentSession {
 
 // ─── Pipeline Types ──────────────────────────────────────────
 
-export type PipelineStepType = 'web_research' | 'ai_analysis' | 'contact_search';
+export type PipelineStepType = 'web_research' | 'ai_analysis' | 'contact_search' | 'kaspr_enrich';
 
 export interface PipelineStep {
   id: string;
