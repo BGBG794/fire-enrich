@@ -133,7 +133,7 @@ export function HomeView({ sources, campaigns, onNavigate }: HomeViewProps) {
             </h2>
             <div className="flex flex-col" style={{ gap: 12 }}>
               <button
-                onClick={() => onNavigate({ type: "source", id: null, step: "import" })}
+                onClick={() => onNavigate({ type: "source", id: null, step: "data" })}
                 className="flex items-center rounded-8 bg-orange-500/5 hover:bg-orange-500/10 border border-orange-500/10 transition-colors text-left group"
                 style={{ gap: 12, padding: 12 }}
               >
@@ -141,9 +141,9 @@ export function HomeView({ sources, campaigns, onNavigate }: HomeViewProps) {
                   <Plus size={18} />
                 </div>
                 <div className="flex-1">
-                  <p className="text-sm font-medium text-foreground">Import CSV</p>
+                  <p className="text-sm font-medium text-foreground">New Project</p>
                   <p className="text-xs text-muted-foreground">
-                    Upload and enrich data
+                    Import data from CSV, URL, or paste
                   </p>
                 </div>
                 <ArrowRight size={14} className="text-muted-foreground" />
@@ -194,7 +194,7 @@ export function HomeView({ sources, campaigns, onNavigate }: HomeViewProps) {
                 Recent Sources
               </h2>
               <button
-                onClick={() => onNavigate({ type: "source", id: null, step: "import" })}
+                onClick={() => onNavigate({ type: "source", id: null, step: "data" })}
                 className="text-xs text-orange-500 hover:text-orange-600 font-medium"
               >
                 View All
@@ -213,7 +213,7 @@ export function HomeView({ sources, campaigns, onNavigate }: HomeViewProps) {
                       onNavigate({
                         type: "source",
                         id: source.id,
-                        step: source.status === "draft" ? "configure" : "results",
+                        step: source.status === "draft" ? "enrich" : "results",
                       })
                     }
                     className="flex items-center rounded-8 hover:bg-accent transition-colors text-left"

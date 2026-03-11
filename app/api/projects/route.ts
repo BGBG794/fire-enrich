@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createProject, listProjects } from "@/lib/db/queries";
+import { createProject, createEmptyProject, listProjects } from "@/lib/db/queries";
 
 export async function GET() {
   const projects = await listProjects();
@@ -8,14 +8,21 @@ export async function GET() {
 
 export async function POST(request: Request) {
   const body = await request.json();
-  const { name, columns, rows } = body;
+  const { name, columns, rows: csvRows } = body;
 
-  if (!columns || !rows || !Array.isArray(rows)) {
+  const projectName = name || `Import ${new Date().toLocaleDateString()}`;
+
+  // Support empty project creation
+  if (!csvRows || csvRows.length === 0) {
+    const projectId = await createEmptyProject(projectName);
+    return NextResponse.json({ projectId });
+  }
+
+  if (!columns || !Array.isArray(csvRows)) {
     return NextResponse.json({ error: "Missing columns or rows" }, { status: 400 });
   }
 
-  const projectName = name || `Import ${new Date().toLocaleDateString()}`;
-  const projectId = await createProject(projectName, columns, rows);
+  const projectId = await createProject(projectName, columns, csvRows);
 
   return NextResponse.json({ projectId });
 }

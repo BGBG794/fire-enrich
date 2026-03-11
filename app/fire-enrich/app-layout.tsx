@@ -36,8 +36,8 @@ function getViewBreadcrumb(view: View, sources: SidebarSource[], campaigns: Camp
       const source = sources.find((s) => s.id === view.id);
       return {
         icon: Database,
-        label: source ? source.name : "Import CSV",
-        parent: "Data Sources",
+        label: source ? source.name : "New Project",
+        parent: "Projects",
       };
     }
     case "warming":

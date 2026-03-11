@@ -172,7 +172,7 @@ export function SourceView({
         onNavigate({
           type: "source",
           id: projData.projectId,
-          step: "configure",
+          step: "enrich",
         });
       }
     } catch (e) {
@@ -320,7 +320,7 @@ export function SourceView({
             onNavigate({
               type: "source",
               id: projectId,
-              step: s as "import" | "configure" | "results",
+              step: s as "data" | "enrich" | "results",
             })
           }
         />
@@ -384,7 +384,7 @@ export function SourceView({
             <p>No data loaded. Please import a CSV first.</p>
             <button
               onClick={() =>
-                onNavigate({ type: "source", id: null, step: "import" })
+                onNavigate({ type: "source", id: null, step: "data" })
               }
               className="text-sm text-orange-500 hover:underline"
               style={{ marginTop: 16 }}

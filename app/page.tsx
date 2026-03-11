@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { AppLayout } from "./fire-enrich/app-layout";
 import { HomeView } from "./fire-enrich/home-view";
-import { SourceView } from "./fire-enrich/source-view";
+import { SandboxView } from "./fire-enrich/sandbox-view";
 import { CampaignView } from "./fire-enrich/campaign-view";
 import { WarmingPanel } from "./fire-enrich/outreach/warming-panel";
 import { OutreachSettingsPanel } from "./fire-enrich/outreach/outreach-settings";
@@ -67,11 +67,11 @@ export default function HomePage() {
       )}
 
       {view.type === "source" && (
-        <SourceView
-          sourceId={view.id}
-          step={view.step}
+        <SandboxView
+          projectId={view.id}
+          tab={view.step}
           onNavigate={setView}
-          onSourceCreated={loadSources}
+          onProjectUpdated={loadSources}
         />
       )}
 

@@ -310,3 +310,22 @@ export interface WarmingLog {
   target: number;
   createdAt: number;
 }
+
+// ─── Sandbox Types ─────────────────────────────────────────
+
+export type SourceType = 'csv' | 'url' | 'paste';
+
+export interface ProjectSource {
+  sourceId: string;
+  sourceName: string;
+  sourceType: SourceType;
+  rowCount: number;
+  addedAt: number;
+}
+
+export interface SQLQueryResult {
+  columns: string[];
+  rows: Record<string, any>[];
+  rowCount: number;
+  executionTimeMs: number;
+}

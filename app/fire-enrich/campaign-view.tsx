@@ -177,7 +177,7 @@ export function CampaignView({
                 </p>
                 <button
                   onClick={() =>
-                    onNavigate({ type: "source", id: null, step: "import" })
+                    onNavigate({ type: "source", id: null, step: "data" })
                   }
                   className="text-sm text-orange-500 hover:underline"
                 >

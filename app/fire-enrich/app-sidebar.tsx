@@ -17,7 +17,7 @@ import type { Campaign, CampaignStats } from "@/lib/types";
 export type View =
   | { type: "home" }
   | { type: "campaign"; id: string | null; step: "contacts" | "sequences" | "launch" | "analytics" }
-  | { type: "source"; id: string | null; step: "import" | "configure" | "results" }
+  | { type: "source"; id: string | null; step: "data" | "enrich" | "results" }
   | { type: "warming" }
   | { type: "settings" };
 
@@ -164,8 +164,8 @@ export function AppSidebar({ sources, campaigns, view, onNavigate, collapsed, on
           />
         </div>
 
-        {/* Data Sources */}
-        <SectionLabel label="Data Sources" collapsed={collapsed} />
+        {/* Projects */}
+        <SectionLabel label="Projects" collapsed={collapsed} />
         <div className="flex flex-col" style={{ gap: 2 }}>
           {sources.map((source) => (
             <NavItem
@@ -175,7 +175,7 @@ export function AppSidebar({ sources, campaigns, view, onNavigate, collapsed, on
                 onNavigate({
                   type: "source",
                   id: source.id,
-                  step: source.status === "draft" ? "configure" : "results",
+                  step: "data",
                 })
               }
               icon={Database}
@@ -187,9 +187,9 @@ export function AppSidebar({ sources, campaigns, view, onNavigate, collapsed, on
           ))}
           <NavItem
             active={view.type === "source" && view.id === null}
-            onClick={() => onNavigate({ type: "source", id: null, step: "import" })}
+            onClick={() => onNavigate({ type: "source", id: null, step: "data" })}
             icon={Plus}
-            label="Import CSV"
+            label="New Project"
             collapsed={collapsed}
           />
         </div>
